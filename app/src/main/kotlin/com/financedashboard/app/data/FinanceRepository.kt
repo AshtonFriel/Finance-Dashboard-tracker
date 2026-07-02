@@ -47,35 +47,19 @@ class FinanceRepository(private val db: AppDatabase) {
         }
 
     /**
-     * Month-end assets and debts across all accounts, carrying balances forward
-     * across gaps. Balance sign, not account type, decides the side: a debt
-     * account paid to zero contributes nothing; an overpaid card is an asset.
+     * Month-end assets and debts, delegated to the core aggregator so the same
+     * closed-account and duplicate rules apply here as in debt identification —
+     * a stale Affirm balance or a relinked loan must never inflate net worth.
      */
     val monthlyNetWorth: Flow<List<MonthlyNetWorth>> =
         db.balanceDao().all().map { balances ->
-            if (balances.isEmpty()) return@map emptyList()
-            // Last snapshot per (account, month).
-            val perAccountMonth = balances.groupBy { it.accountName to YearMonth.from(LocalDate.ofEpochDay(it.epochDay)) }
-                .mapValues { (_, rows) -> rows.maxBy { it.epochDay }.balance }
-
-            // Continuous month grid so sparse snapshots don't distort the x-axis.
-            val allMonths = perAccountMonth.keys.map { it.second }
-            val firstMonth = allMonths.min()
-            val lastMonth = allMonths.max()
-            val months = generateSequence(firstMonth) { it.plusMonths(1) }
-                .takeWhile { it <= lastMonth }.toList()
-            val accountNames = perAccountMonth.keys.map { it.first }.distinct()
-            val lastKnown = mutableMapOf<String, Double>()
-            months.map { m ->
-                var assets = 0.0
-                var debts = 0.0
-                for (name in accountNames) {
-                    perAccountMonth[name to m]?.let { lastKnown[name] = it }
-                    val bal = lastKnown[name] ?: continue
-                    if (bal >= 0) assets += bal else debts += -bal
+            com.financedashboard.core.engine.NetWorthAggregator.monthlySeries(
+                balances.map {
+                    com.financedashboard.core.model.BalanceRecord(
+                        LocalDate.ofEpochDay(it.epochDay), it.balance, it.accountName,
+                    )
                 }
-                MonthlyNetWorth(m, assets, debts)
-            }
+            ).map { MonthlyNetWorth(it.month, it.assets, it.debts) }
         }
 
     /** Strict-rules debt identification (latest-only, stale/paid-off excluded, duplicates flagged). */

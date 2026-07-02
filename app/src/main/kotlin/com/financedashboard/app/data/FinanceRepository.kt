@@ -113,6 +113,13 @@ class FinanceRepository(private val db: AppDatabase) {
     val debtAssumptions: Flow<Map<String, DebtAssumptionEntity>> =
         db.debtAssumptionDao().all().map { list -> list.associateBy { it.accountName } }
 
+    /** Highest amount ever owed per account — the "original" for %-paid progress. */
+    val maxOwedByAccount: Flow<Map<String, Double>> = db.balanceDao().all().map { rows ->
+        rows.filter { it.balance < 0 }
+            .groupBy { it.accountName }
+            .mapValues { (_, list) -> -list.minOf { it.balance } }
+    }
+
     /** Latest positive balances across cash accounts — the emergency-fund base. */
     val liquidCash: Flow<Double> = accounts.map { accs ->
         accs.filter { it.type == AccountType.CASH }.sumOf { it.latestBalance.coerceAtLeast(0.0) }

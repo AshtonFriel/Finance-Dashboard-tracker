@@ -1,24 +1,49 @@
 package com.financedashboard.app.ui.theme
 
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import com.financedashboard.app.R
 
 /**
- * Chart palette: validated reference dataviz palette; light and dark are each
- * selected (not auto-flipped). Semantic assignments are fixed so a series is
- * always the same hue: income/primary = blue, investment = aqua, debt = red,
- * neutral baseline = muted gray.
+ * "Fiscal" design language (per design handoff): bold, motivating, dark-green.
+ * The app is dark-only by design intent.
  */
+object Fiscal {
+    val Background = Color(0xFF0F1F17)
+    val NavBackground = Color(0xFF0C1912)
+    val Card = Color(0xFF16271E)
+    val CardBorder = Color(0x0DFFFFFF) // white 5%
+    val HeroGradientStart = Color(0xFF173026)
+    val HeroGradientEnd = Color(0xFF12241B)
+    val HeroBorder = Color(0x243ECF8E) // accent 14%
+    val Accent = Color(0xFF3ECF8E)
+    val AccentDark = Color(0xFF2BA876)
+    val OnAccent = Color(0xFF0F1F17)
+    val AccentTint = Color(0x143ECF8E) // accent 8%
+    val Coral = Color(0xFFFF8B6B)
+    val CoralTintBg = Color(0x1AFF8B6B) // coral 10%
+    val CoralTintText = Color(0xFFFFB59E)
+    val Amber = Color(0xFFF5C451)
+    val Sky = Color(0xFF6BD0FF)
+    val TextPrimary = Color(0xFFEAF3EE)
+    val TextSecondary = Color(0xFF8FA89A)
+    val TextMuted = Color(0xFF5F7A6C)
+    val Track = Color(0x14FFFFFF) // white 8%
+    val Hairline = Color(0x0FFFFFFF) // white 6%
+}
+
+/** Chart roles mapped onto the Fiscal palette. */
 data class ChartColors(
     val surface: Color,
     val primaryInk: Color,
@@ -37,83 +62,100 @@ data class ChartColors(
     val good: Color,
     val critical: Color,
 ) {
-    /** Fixed categorical order per the palette spec — assigned, never cycled. */
+    /** Fixed categorical order — assigned, never cycled. */
     val categorical: List<Color>
-        get() = listOf(seriesBlue, seriesAqua, seriesYellow, seriesGreen, seriesViolet, seriesRed, seriesMagenta, seriesOrange)
+        get() = listOf(seriesAqua, seriesYellow, seriesBlue, seriesRed, seriesViolet, seriesMagenta, seriesOrange, seriesGreen)
 }
 
-val LightChartColors = ChartColors(
-    surface = Color(0xFFFCFCFB),
-    primaryInk = Color(0xFF0B0B0B),
-    secondaryInk = Color(0xFF52514E),
-    mutedInk = Color(0xFF898781),
-    gridline = Color(0xFFE1E0D9),
-    baseline = Color(0xFFC3C2B7),
-    seriesBlue = Color(0xFF2A78D6),
-    seriesAqua = Color(0xFF1BAF7A),
-    seriesYellow = Color(0xFFEDA100),
-    seriesViolet = Color(0xFF4A3AA7),
-    seriesRed = Color(0xFFE34948),
+val FiscalChartColors = ChartColors(
+    surface = Fiscal.Card,
+    primaryInk = Fiscal.TextPrimary,
+    secondaryInk = Fiscal.TextSecondary,
+    mutedInk = Fiscal.TextMuted,
+    gridline = Fiscal.Hairline,
+    baseline = Fiscal.Track,
+    seriesBlue = Fiscal.Sky,
+    seriesAqua = Fiscal.Accent,
+    seriesYellow = Fiscal.Amber,
+    seriesViolet = Color(0xFFB39DF1),
+    seriesRed = Fiscal.Coral,
     seriesMagenta = Color(0xFFE87BA4),
-    seriesOrange = Color(0xFFEB6834),
-    seriesGreen = Color(0xFF008300),
-    good = Color(0xFF006300),
-    critical = Color(0xFFD03B3B),
+    seriesOrange = Color(0xFFE8A06B),
+    seriesGreen = Fiscal.AccentDark,
+    good = Fiscal.Accent,
+    critical = Fiscal.Coral,
 )
 
-val DarkChartColors = ChartColors(
-    surface = Color(0xFF1A1A19),
-    primaryInk = Color(0xFFFFFFFF),
-    secondaryInk = Color(0xFFC3C2B7),
-    mutedInk = Color(0xFF898781),
-    gridline = Color(0xFF2C2C2A),
-    baseline = Color(0xFF383835),
-    seriesBlue = Color(0xFF3987E5),
-    seriesAqua = Color(0xFF199E70),
-    seriesYellow = Color(0xFFC98500),
-    seriesViolet = Color(0xFF9085E9),
-    seriesRed = Color(0xFFE66767),
-    seriesMagenta = Color(0xFFD55181),
-    seriesOrange = Color(0xFFD95926),
-    seriesGreen = Color(0xFF008300),
-    good = Color(0xFF0CA30C),
-    critical = Color(0xFFD03B3B),
+val LocalChartColors = staticCompositionLocalOf { FiscalChartColors }
+
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+private fun grotesk(weight: Int) = Font(
+    R.font.space_grotesk,
+    weight = FontWeight(weight),
+    variationSettings = FontVariation.Settings(FontVariation.weight(weight)),
 )
 
-val LocalChartColors = staticCompositionLocalOf { LightChartColors }
-
-private val LightScheme = lightColorScheme(
-    primary = Color(0xFF2A78D6),
-    secondary = Color(0xFF1BAF7A),
-    error = Color(0xFFD03B3B),
-    background = Color(0xFFF9F9F7),
-    surface = Color(0xFFFCFCFB),
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+private fun plex(weight: Int) = Font(
+    R.font.ibm_plex_sans,
+    weight = FontWeight(weight),
+    variationSettings = FontVariation.Settings(FontVariation.weight(weight)),
 )
 
-private val DarkScheme = darkColorScheme(
-    primary = Color(0xFF3987E5),
-    secondary = Color(0xFF199E70),
-    error = Color(0xFFE66767),
-    background = Color(0xFF0D0D0D),
-    surface = Color(0xFF1A1A19),
+/** Numbers, titles, big stats. */
+val SpaceGrotesk = FontFamily(grotesk(500), grotesk(600), grotesk(700))
+
+/** Body, labels, buttons. */
+val IbmPlexSans = FontFamily(plex(400), plex(500), plex(600))
+
+private val FiscalTypography = Typography(
+    headlineSmall = TextStyle( // screen titles: 26/700 Space Grotesk
+        fontFamily = SpaceGrotesk, fontWeight = FontWeight.W700, fontSize = 26.sp,
+    ),
+    headlineMedium = TextStyle( // hero numbers: 30-38/700
+        fontFamily = SpaceGrotesk, fontWeight = FontWeight.W700, fontSize = 34.sp,
+    ),
+    titleLarge = TextStyle( // card stats: 22/700
+        fontFamily = SpaceGrotesk, fontWeight = FontWeight.W700, fontSize = 22.sp,
+    ),
+    titleMedium = TextStyle( // sub-stats: 18/700
+        fontFamily = SpaceGrotesk, fontWeight = FontWeight.W700, fontSize = 18.sp,
+    ),
+    titleSmall = TextStyle(
+        fontFamily = SpaceGrotesk, fontWeight = FontWeight.W600, fontSize = 15.sp,
+    ),
+    bodyLarge = TextStyle(fontFamily = IbmPlexSans, fontWeight = FontWeight.W400, fontSize = 15.sp),
+    bodyMedium = TextStyle(fontFamily = IbmPlexSans, fontWeight = FontWeight.W400, fontSize = 14.sp),
+    bodySmall = TextStyle(fontFamily = IbmPlexSans, fontWeight = FontWeight.W400, fontSize = 13.sp),
+    labelLarge = TextStyle(fontFamily = IbmPlexSans, fontWeight = FontWeight.W600, fontSize = 14.sp),
+    labelMedium = TextStyle(fontFamily = IbmPlexSans, fontWeight = FontWeight.W500, fontSize = 12.sp),
+    labelSmall = TextStyle(fontFamily = IbmPlexSans, fontWeight = FontWeight.W500, fontSize = 11.sp),
+)
+
+private val FiscalScheme = darkColorScheme(
+    primary = Fiscal.Accent,
+    onPrimary = Fiscal.OnAccent,
+    secondary = Fiscal.Sky,
+    error = Fiscal.Coral,
+    background = Fiscal.Background,
+    onBackground = Fiscal.TextPrimary,
+    surface = Fiscal.Card,
+    onSurface = Fiscal.TextPrimary,
+    surfaceVariant = Fiscal.Card,
+    onSurfaceVariant = Fiscal.TextSecondary,
+    outline = Fiscal.TextMuted,
+    surfaceContainer = Fiscal.NavBackground,
+    surfaceContainerHigh = Fiscal.Card,
+    surfaceContainerHighest = Fiscal.Card,
 )
 
 @Composable
-fun FinanceDashboardTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false,
-    content: @Composable () -> Unit,
-) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        darkTheme -> DarkScheme
-        else -> LightScheme
-    }
-    val chartColors = if (darkTheme) DarkChartColors else LightChartColors
-    CompositionLocalProvider(LocalChartColors provides chartColors) {
-        MaterialTheme(colorScheme = colorScheme, content = content)
+fun FinanceDashboardTheme(content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalChartColors provides FiscalChartColors) {
+        MaterialTheme(
+            colorScheme = FiscalScheme,
+            typography = FiscalTypography,
+            content = content,
+        )
     }
 }

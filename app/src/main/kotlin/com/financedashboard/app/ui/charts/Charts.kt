@@ -79,6 +79,8 @@ fun LineChart(
     shadeBetween: Pair<Int, Int>? = null,
     shadeColor: Color = Color.Unspecified,
     yMinOverride: Double? = null,
+    /** Index of a series to fill under with a faint wash (design: invest balance). */
+    fillUnderIndex: Int? = null,
 ) {
     val chart = LocalChartColors.current
     val textMeasurer = rememberTextMeasurer()
@@ -150,7 +152,21 @@ fun LineChart(
                     }
                 }
 
-                // Series lines: 2dp, dashed for reference series.
+                // Faint wash under one series (before lines so lines stay crisp).
+                fillUnderIndex?.let { fi ->
+                    series.getOrNull(fi)?.let { s ->
+                        if (s.values.size > 1) {
+                            val fill = Path()
+                            fill.moveTo(xPos(0), plotH)
+                            for (i in s.values.indices) fill.lineTo(xPos(i), yPos(s.values[i]))
+                            fill.lineTo(xPos(s.values.size - 1), plotH)
+                            fill.close()
+                            drawPath(fill, s.color.copy(alpha = 0.12f))
+                        }
+                    }
+                }
+
+                // Series lines: 3dp rounded polylines, dashed for reference series.
                 for (s in series) {
                     if (s.values.size < 2) continue
                     val path = Path()
@@ -159,10 +175,21 @@ fun LineChart(
                     drawPath(
                         path, s.color,
                         style = Stroke(
-                            width = 2.dp.toPx(),
+                            width = 3.dp.toPx(),
+                            cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                            join = androidx.compose.ui.graphics.StrokeJoin.Round,
                             pathEffect = if (s.dashed) PathEffect.dashPathEffect(floatArrayOf(12f, 8f)) else null,
                         ),
                     )
+                }
+
+                // End dot with a dark-surface ring on each series' latest point.
+                for (s in series) {
+                    if (s.values.isEmpty()) continue
+                    val lastI = s.values.size - 1
+                    val c = Offset(xPos(lastI), yPos(s.values[lastI]))
+                    drawCircle(chart.surface, 4.5.dp.toPx() + 2.dp.toPx(), c)
+                    drawCircle(s.color, 4.5.dp.toPx(), c)
                 }
 
                 // First/last x labels.

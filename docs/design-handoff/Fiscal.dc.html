@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { -webkit-tap-highlight-color: transparent; }
+  input[type=range]{ -webkit-appearance:none; appearance:none; background:transparent; }
+  input[type=range]::-webkit-slider-runnable-track{ height:6px; border-radius:99px; background:rgba(62,207,142,0.18); }
+  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; appearance:none; width:22px; height:22px; margin-top:-8px; border-radius:50%; background:#3ecf8e; border:3px solid #0f1f17; box-shadow:0 2px 8px rgba(62,207,142,0.5); cursor:pointer; }
+  ::-webkit-scrollbar{ width:0; height:0; }
+</style>
+</helmet>
+<x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" dark="{{ true }}" hint-size="428px,908px">
+  <div style="width:100%; height:100%; display:flex; flex-direction:column; background:#0f1f17; color:#eaf3ee; font-family:'IBM Plex Sans', system-ui, sans-serif; overflow:hidden;">
+
+    <div style="flex:1; overflow-y:auto; overflow-x:hidden; padding:8px 18px 24px;">
+
+      <!-- ══════════════ DASHBOARD ══════════════ -->
+      <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:flex-end; margin:14px 2px 20px;">
+            <div>
+              <div style="font-size:13px; color:#8fa89a; letter-spacing:0.3px;">Good evening,</div>
+              <div style="font-size:26px; font-weight:700; font-family:'Space Grotesk',sans-serif; line-height:1.1;">Alex Rivera</div>
+            </div>
+            <div style="width:42px; height:42px; border-radius:50%; background:linear-gradient(135deg,#3ecf8e,#2ba876); display:flex; align-items:center; justify-content:center; font-family:'Space Grotesk',sans-serif; font-weight:700; color:#08170f;">A</div>
+          </div>
+
+          <!-- hero: debt-free countdown -->
+          <div style="background:linear-gradient(160deg,#173026,#12241b); border:1px solid rgba(62,207,142,0.14); border-radius:24px; padding:22px; display:flex; gap:18px; align-items:center; box-shadow:0 18px 40px rgba(0,0,0,0.35);">
+            <div style="flex-shrink:0;">{{ debtRing }}</div>
+            <div style="flex:1; min-width:0;">
+              <div style="font-size:12px; letter-spacing:1px; text-transform:uppercase; color:#3ecf8e; font-weight:600;">Debt-free by</div>
+              <div style="font-size:30px; font-weight:700; font-family:'Space Grotesk',sans-serif; line-height:1.05; margin:2px 0 6px;">{{ payoffDate }}</div>
+              <div style="font-size:13px; color:#8fa89a;">{{ monthsLeftLabel }} · {{ interestSavedLabel }} saved in interest</div>
+            </div>
+          </div>
+
+          <div style="font-size:12px; letter-spacing:1px; text-transform:uppercase; color:#5f7a6c; font-weight:600; margin:24px 4px 12px;">Your money, at a glance</div>
+
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <button onClick="{{ goDebt }}" style="text-align:left; border:none; cursor:pointer; background:#16271e; border:1px solid rgba(255,255,255,0.05); border-radius:20px; padding:18px; display:flex; align-items:center; gap:14px;">
+              <div style="width:44px; height:44px; border-radius:14px; background:rgba(255,139,107,0.14); display:flex; align-items:center; justify-content:center;"><div style="width:14px; height:14px; border-radius:50%; background:#ff8b6b;"></div></div>
+              <div style="flex:1;">
+                <div style="font-size:14px; color:#8fa89a;">Total debt</div>
+                <div style="font-size:22px; font-weight:700; font-family:'Space Grotesk',sans-serif; color:#eaf3ee;">{{ totalDebtLabel }}</div>
+              </div>
+              <div style="font-size:13px; color:#3ecf8e; font-weight:600;">{{ debtPaidLabel }} paid ›</div>
+            </button>
+
+            <button onClick="{{ goIncome }}" style="text-align:left; border:none; cursor:pointer; background:#16271e; border:1px solid rgba(255,255,255,0.05); border-radius:20px; padding:18px; display:flex; align-items:center; gap:14px;">
+              <div style="width:44px; height:44px; border-radius:14px; background:rgba(245,196,81,0.14); display:flex; align-items:center; justify-content:center;"><div style="width:14px; height:14px; transform:rotate(45deg); background:#f5c451;"></div></div>
+              <div style="flex:1;">
+                <div style="font-size:14px; color:#8fa89a;">Income (real, 2021 $)</div>
+                <div style="font-size:22px; font-weight:700; font-family:'Space Grotesk',sans-serif; color:#eaf3ee;">{{ realNowLabel }}</div>
+              </div>
+              <div style="font-size:13px; color:#f5c451; font-weight:600;">{{ raiseGapLabel }} ›</div>
+            </button>
+
+            <button onClick="{{ goInvest }}" style="text-align:left; border:none; cursor:pointer; background:#16271e; border:1px solid rgba(255,255,255,0.05); border-radius:20px; padding:18px; display:flex; align-items:center; gap:14px;">
+              <div style="width:44px; height:44px; border-radius:14px; background:rgba(62,207,142,0.14); display:flex; align-items:center; justify-content:center;"><div style="width:0; height:0; border-left:8px solid transparent; border-right:8px solid transparent; border-bottom:14px solid #3ecf8e;"></div></div>
+              <div style="flex:1;">
+                <div style="font-size:14px; color:#8fa89a;">Investments</div>
+                <div style="font-size:22px; font-weight:700; font-family:'Space Grotesk',sans-serif; color:#eaf3ee;">{{ investNowLabel }}</div>
+              </div>
+              <div style="font-size:13px; color:#3ecf8e; font-weight:600;">→ {{ projectedLabel }} ›</div>
+            </button>
+          </div>
+
+          <div style="margin-top:14px; background:#16271e; border:1px solid rgba(255,255,255,0.05); border-radius:20px; padding:18px;">
+            <div style="font-size:12px; letter-spacing:1px; text-transform:uppercase; color:#5f7a6c; font-weight:600; margin-bottom:14px;">This month</div>
+            <div style="display:flex; justify-content:space-between;">
+              <div><div style="font-size:20px; font-weight:700; font-family:'Space Grotesk',sans-serif;">{{ monthTotalLabel }}</div><div style="font-size:12px; color:#8fa89a;">to debt</div></div>
+              <div style="width:1px; background:rgba(255,255,255,0.06);"></div>
+              <div><div style="font-size:20px; font-weight:700; font-family:'Space Grotesk',sans-serif;">{{ contribLabel }}</div><div style="font-size:12px; color:#8fa89a;">invested</div></div>
+              <div style="width:1px; background:rgba(255,255,255,0.06);"></div>
+              <div><div style="font-size:20px; font-weight:700; font-family:'Space Grotesk',sans-serif; color:#3ecf8e;">{{ extraLabel }}</div><div style="font-size:12px; color:#8fa89a;">extra pmt</div></div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ══════════════ DEBT ══════════════ -->
+      <sc-if value="{{ isDebt }}" hint-placeholder-val="{{ true }}">
+        <div>
+          <div style="margin:14px 2px 18px;"><div style="font-size:26px; font-weight:700; font-family:'Space Grotesk',sans-serif;">Debt payoff</div><div style="font-size:13px; color:#8fa89a;">{{ strategyLabel }} strategy</div></div>
+
+          <div style="background:linear-gradient(160deg,#173026,#12241b); border:1px solid rgba(62,207,142,0.14); border-radius:24px; padding:22px; margin-bottom:16px;">
+            <div style="font-size:13px; color:#8fa89a;">Total remaining</div>
+            <div style="font-size:38px; font-weight:700; font-family:'Space Grotesk',sans-serif; line-height:1;">{{ totalDebtLabel }}</div>
+            <div style="height:8px; border-radius:99px; background:rgba(255,255,255,0.08); margin:16px 0 8px; overflow:hidden;"><div style="height:100%; border-radius:99px; background:linear-gradient(90deg,#3ecf8e,#2ba876); width:{{ debtPaidPctW }};"></div></div>
+            <div style="display:flex; justify-content:space-between; font-size:12px; color:#8fa89a;"><span>{{ debtPaidLabel }} paid off</span><span>{{ totalOriginalLabel }} borrowed</span></div>
+            <div style="display:flex; gap:10px; margin-top:18px;">
+              <div style="flex:1; background:rgba(62,207,142,0.08); border-radius:14px; padding:12px;"><div style="font-size:11px; color:#8fa89a; text-transform:uppercase; letter-spacing:0.5px;">Payoff date</div><div style="font-size:18px; font-weight:700; font-family:'Space Grotesk',sans-serif;">{{ payoffDate }}</div></div>
+              <div style="flex:1; background:rgba(62,207,142,0.08); border-radius:14px; padding:12px;"><div style="font-size:11px; color:#8fa89a; text-transform:uppercase; letter-spacing:0.5px;">Interest saved</div><div style="font-size:18px; font-weight:700; font-family:'Space Grotesk',sans-serif; color:#3ecf8e;">{{ interestSavedLabel }}</div></div>
+            </div>
+          </div>
+
+          <!-- strategy toggle -->
+          <div style="display:flex; gap:8px; background:#16271e; border:1px solid rgba(255,255,255,0.05); border-radius:16px; padding:6px; margin-bottom:8px;">
+            <button onClick="{{ setAvalanche }}" style="flex:1; border:none; cursor:pointer; border-radius:11px; padding:12px; font-family:'IBM Plex Sans',sans-serif; font-size:14px; font-weight:600; background:{{ avalancheBg }}; color:{{ avalancheColor }};">Avalanche</button>
+            <button onClick="{{ setSnowball }}" style="flex:1; border:none; cursor:pointer; border-radius:11px; padding:12px; font-family:'IBM Plex Sans',sans-serif; font-size:14px; font-weight:600; background:{{ snowballBg }}; color:{{ snowballColor }};">Snowball</button>
+          </div>
+          <div style="font-size:12px; color:#8fa89a; padding:0 4px 18px; line-height:1.4;">{{ strategyBlurb }}</div>
+
+          <!-- extra payment slider -->
+          <div style="background:#16271e; border:1px solid rgba(255,255,255,0.05); border-radius:20px; padding:18px; margin-bottom:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px;"><span style="font-size:14px; color:#8fa89a;">Extra monthly payment</span><span style="font-size:22px; font-weight:700; font-family:'Space Grotesk',sans-serif; color:#3ecf8e;">{{ extraLabel }}</span></div>
+            <input type="range" min="0" max="1000" step="25" value="{{ extra }}" onInput="{{ onExtra }}" style="width:100%;" />
+            <div style="display:flex; justify-content:space-between; font-size:11px; color:#5f7a6c; margin-top:6px;"><span>$0</span><span>$1,000</span></div>
+          </div>
+
+          <div style="font-size:12px; letter-spacing:1px; text-transform:uppercase; color:#5f7a6c; font-weight:600; margin:6px 4px 12px;">Your debts</div>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <sc-for list="{{ debtRows }}" as="d" hint-placeholder-count="3">
+              <div style="background:#16271e; border:1px solid rgba(255,255,255,0.05); border-radius:20px; padding:16px 18px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                  <div style="display:flex; align-items:center; gap:10px;"><div style="width:10px; height:10px; border-radius:50%; background:{{ d.color }};"></div><span style="font-size:15px; font-weight:600;">{{ d.name }}</span><sc-if value="{{ d.isFocus }}" hint-placeholder-val="{{ false }}"><span style="font-size:10px; font-weight:700; letter-spacing:0.5px; color:#0f1f17; background:#3ecf8e; padding:3px 8px; border-radius:99px;">FOCUS</span></sc-if></div>
+                  <span style="font-size:16px; font-weight:700; font-family:'Space Grotesk',sans-serif;">{{ d.balanceLabel }}</span>
+                </div>
+                <div style="height:6px; border-radius:99px; background:rgba(255,255,255,0.07); overflow:hidden; margin-bottom:8px;"><div style="height:100%; border-radius:99px; background:{{ d.color }}; width:{{ d.pctW }};"></div></div>
+                <div style="display:flex; justify-content:space-between; font-size:12px; color:#8fa89a;"><span>{{ d.aprLabel }} APR · min {{ d.minLabel }}</span><span>{{ d.pctLabel }} paid</span></div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="margin-top:16px; background:#16271e; border:1px solid rgba(255,255,255,0.05); border-radius:20px; padding:18px;">
+            <div style="font-size:12px; letter-spacing:1px; text-transform:uppercase; color:#5f7a6c; font-weight:600; margin-bottom:14px;">Monthly breakdown</div>
+            <div style="display:flex; flex-direction:column; gap:10px; font-size:14px;">
+              <div style="display:flex; justify-content:space-between;"><span style="color:#8fa89a;">Minimum payments</span><span style="font-family:'Space Grotesk',sans-serif; font-weight:600;">{{ minTotalLabel }}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span style="color:#8fa89a;">Extra toward focus</span><span style="font-family:'Space Grotesk',sans-serif; font-weight:600; color:#3ecf8e;">{{ extraLabel }}</span></div>
+              <div style="height:1px; background:rgba(255,255,255,0.06);"></div>
+              <div style="display:flex; justify-content:space-between;"><span style="font-weight:600;">Total / month</span><span style="font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:16px;">{{ monthTotalLabel }}</span></div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ══════════════ INCOME / INFLATION ══════════════ -->
+      <sc-if value="{{ isIncome }}" hint-placeholder-val="{{ true }}">
+        <div>
+          <div style="margin:14px 2px 18px;"><div style="font-size:26px; font-weight:700; font-family:'Space Grotesk',sans-serif;">Income vs inflation</div><div style="font-size:13px; color:#8fa89a;">Are your raises keeping up?</div></div>
+
+          <div style="background:linear-gradient(160deg,#173026,#12241b); border:1px solid rgba(62,207,142,0.14); border-radius:24px; padding:22px; margin-bottom:16px;">
+            <div style="display:flex; justify-content:space-between; gap:12px;">
+              <div><div style="font-size:12px; color:#8fa89a; text-transform:uppercase; letter-spacing:0.5px;">Nominal 2026</div><div style="font-size:30px; font-weight:700; font-family:'Space Grotesk',sans-serif;">{{ nominalNowLabel }}</div></div>
+              <div style="text-align:right;"><div style="font-size:12px; color:#8fa89a; text-transform:uppercase; letter-spacing:0.5px;">Real (2021 $)</div><div style="font-size:30px; font-weight:700; font-family:'Space Grotesk',sans-serif; color:#f5c451;">{{ realNowLabel }}</div></div>
+            </div>
+            <div style="margin-top:18px;">{{ incomeChart }}</div>
+            <div style="display:flex; gap:18px; margin-top:12px; font-size:12px; color:#8fa89a;">
+              <div style="display:flex; align-items:center; gap:6px;"><div style="width:14px; height:3px; border-radius:2px; background:#3ecf8e;"></div>Nominal (what you're paid)</div>
+              <div style="display:flex; align-items:center; gap:6px;"><div style="width:14px; height:3px; border-radius:2px; background:#f5c451;"></div>Real buying power</div>
+            </div>
+          </div>
+
+          <div style="background:#16271e; border:1px solid rgba(255,255,255,0.05); border-radius:20px; padding:18px; margin-bottom:16px;">
+            <div style="font-size:14px; color:#8fa89a; margin-bottom:4px;">Purchasing power lost since 2021</div>
+            <div style="font-size:28px; font-weight:700; font-family:'Space Grotesk',sans-serif; color:#ff8b6b;">{{ powerLossLabel }}</div>
+            <div style="font-size:13px; color:#8fa89a; margin-top:6px; line-height:1.45;">Your {{ nominalNowLabel }} salary buys what {{ realNowLabel }} bought in 2021. Inflation quietly clawed back part of every raise.</div>
+          </div>
+
+          <div style="background:#16271e; border:1px solid rgba(255,255,255,0.05); border-radius:20px; padding:18px;">
+            <div style="font-size:12px; letter-spacing:1px; text-transform:uppercase; color:#5f7a6c; font-weight:600; margin-bottom:16px;">Raises vs CPI, since 2021</div>
+            <div style="display:flex; flex-direction:column; gap:16px;">
+              <div>
+                <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:6px;"><span style="color:#8fa89a;">Your cumulative raises</span><span style="font-family:'Space Grotesk',sans-serif; font-weight:700; color:#3ecf8e;">{{ cumRaiseLabel }}</span></div>
+                <div style="height:8px; border-radius:99px; background:rgba(255,255,255,0.07); overflow:hidden;"><div style="height:100%; background:#3ecf8e; width:{{ raiseBarW }};"></div></div>
+              </div>
+              <div>
+                <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:6px;"><span style="color:#8fa89a;">Cumulative inflation (CPI)</span><span style="font-family:'Space Grotesk',sans-serif; font-weight:700; color:#f5c451;">{{ cumCpiLabel }}</span></div>
+                <div style="height:8px; border-radius:99px; background:rgba(255,255,255,0.07); overflow:hidden;"><div style="height:100%; background:#f5c451; width:{{ cpiBarW }};"></div></div>
+              </div>
+            </div>
+            <div style="margin-top:16px; padding:12px 14px; background:rgba(255,139,107,0.1); border-radius:12px; font-size:13px; color:#ffb59e; line-height:1.4;">{{ raiseVerdict }}</div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ══════════════ INVEST ══════════════ -->
+      <sc-if value="{{ isInvest }}" hint-placeholder-val="{{ true }}">
+        <div>
+          <div style="margin:14px 2px 18px;"><div style="font-size:26px; font-weight:700; font-family:'Space Grotesk',sans-serif;">Investments</div><div style="font-size:13px; color:#8fa89a;">Projected to retirement (30 yrs)</div></div>
+
+          <div style="background:linear-gradient(160deg,#173026,#12241b); border:1px solid rgba(62,207,142,0.14); border-radius:24px; padding:22px; margin-bottom:16px;">
+            <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
+              <div><div style="font-size:12px; color:#8fa89a; text-transform:uppercase; letter-spacing:0.5px;">Today</div><div style="font-size:28px; font-weight:700; font-family:'Space Grotesk',sans-serif;">{{ investNowLabel }}</div></div>
+              <div style="text-align:right;"><div style="font-size:12px; color:#8fa89a; text-transform:uppercase; letter-spacing:0.5px;">In 30 years</div><div style="font-size:28px; font-weight:700; font-family:'Space Grotesk',sans-serif; color:#3ecf8e;">{{ projectedLabel }}</div></div>
+            </div>
+            <div style="margin-top:18px;">{{ investChart }}</div>
+            <div style="display:flex; gap:18px; margin-top:12px; font-size:12px; color:#8fa89a;">
+              <div style="display:flex; align-items:center; gap:6px;"><div style="width:14px; height:3px; border-radius:2px; background:#3ecf8e;"></div>Total balance</div>
+              <div style="display:flex; align-items:center; gap:6px;"><div style="width:14px; height:3px; border-radius:2px; background:#6bd0ff;"></div>Contributions</div>
+            </div>
+          </div>
+
+          <!-- scenario -->
+          <div style="display:flex; gap:8px; background:#16271e; border:1px solid rgba(255,255,255,0.05); border-radius:16px; padding:6px; margin-bottom:16px;">
+            <button onClick="{{ setConservative }}" style="flex:1; border:none; cursor:pointer; border-radius:11px; padding:11px 4px; font-family:'IBM Plex Sans',sans-serif; font-size:13px; font-weight:600; background:{{ consBg }}; color:{{ consColor }};">Conservative<br><span style="font-size:11px; opacity:0.7;">5%</span></button>
+            <button onClick="{{ setModerate }}" style="flex:1; border:none; cursor:pointer; border-radius:11px; padding:11px 4px; font-family:'IBM Plex Sans',sans-serif; font-size:13px; font-weight:600; background:{{ modBg }}; color:{{ modColor }};">Moderate<br><span style="font-size:11px; opacity:0.7;">7%</span></button>
+            <button onClick="{{ setAggressive }}" style="flex:1; border:none; cursor:pointer; border-radius:11px; padding:11px 4px; font-family:'IBM Plex Sans',sans-serif; font-size:13px; font-weight:600; background:{{ aggBg }}; color:{{ aggColor }};">Aggressive<br><span style="font-size:11px; opacity:0.7;">10%</span></button>
+          </div>
+
+          <div style="background:#16271e; border:1px solid rgba(255,255,255,0.05); border-radius:20px; padding:18px; margin-bottom:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px;"><span style="font-size:14px; color:#8fa89a;">Monthly contribution</span><span style="font-size:22px; font-weight:700; font-family:'Space Grotesk',sans-serif; color:#3ecf8e;">{{ contribLabel }}</span></div>
+            <input type="range" min="0" max="3000" step="50" value="{{ contrib }}" onInput="{{ onContrib }}" style="width:100%;" />
+            <div style="display:flex; justify-content:space-between; font-size:11px; color:#5f7a6c; margin-top:6px;"><span>$0</span><span>$3,000</span></div>
+          </div>
+
+          <!-- goal -->
+          <div style="background:#16271e; border:1px solid rgba(255,255,255,0.05); border-radius:20px; padding:18px; margin-bottom:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px;"><span style="font-size:14px; color:#8fa89a;">Retirement goal</span><span style="font-size:16px; font-weight:700; font-family:'Space Grotesk',sans-serif;">{{ goalLabel }}</span></div>
+            <div style="height:10px; border-radius:99px; background:rgba(255,255,255,0.07); overflow:hidden; margin-bottom:8px;"><div style="height:100%; border-radius:99px; background:linear-gradient(90deg,#3ecf8e,#2ba876); width:{{ goalPctW }};"></div></div>
+            <div style="font-size:13px; color:#8fa89a;">Projected to reach <span style="color:#3ecf8e; font-weight:600;">{{ goalPctLabel }}</span> of goal</div>
+          </div>
+
+          <!-- breakdown -->
+          <div style="background:#16271e; border:1px solid rgba(255,255,255,0.05); border-radius:20px; padding:18px;">
+            <div style="font-size:12px; letter-spacing:1px; text-transform:uppercase; color:#5f7a6c; font-weight:600; margin-bottom:14px;">Where the money comes from</div>
+            <div style="height:14px; border-radius:99px; overflow:hidden; display:flex; margin-bottom:14px;"><div style="background:#6bd0ff; width:{{ contribShareW }};"></div><div style="background:#3ecf8e; flex:1;"></div></div>
+            <div style="display:flex; justify-content:space-between; font-size:14px;">
+              <div style="display:flex; align-items:center; gap:8px;"><div style="width:10px; height:10px; border-radius:3px; background:#6bd0ff;"></div><span style="color:#8fa89a;">You put in</span></div>
+              <span style="font-family:'Space Grotesk',sans-serif; font-weight:700;">{{ totalContribsLabel }}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:14px; margin-top:10px;">
+              <div style="display:flex; align-items:center; gap:8px;"><div style="width:10px; height:10px; border-radius:3px; background:#3ecf8e;"></div><span style="color:#8fa89a;">Compound growth</span></div>
+              <span style="font-family:'Space Grotesk',sans-serif; font-weight:700; color:#3ecf8e;">{{ totalGrowthLabel }}</span>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+
+    <!-- ══════════════ BOTTOM NAV ══════════════ -->
+    <div style="display:flex; background:#0c1912; border-top:1px solid rgba(255,255,255,0.06); padding:8px 8px 6px;">
+      <button onClick="{{ goHome }}" style="flex:1; border:none; background:transparent; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:5px; padding:6px 0;">
+        <div style="width:20px; height:20px; border-radius:7px; background:{{ homeColor }};"></div>
+        <span style="font-size:11px; font-weight:600; color:{{ homeColor }};">Home</span>
+      </button>
+      <button onClick="{{ goDebt }}" style="flex:1; border:none; background:transparent; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:5px; padding:6px 0;">
+        <div style="width:20px; height:20px; border-radius:50%; background:{{ debtColor }};"></div>
+        <span style="font-size:11px; font-weight:600; color:{{ debtColor }};">Debt</span>
+      </button>
+      <button onClick="{{ goIncome }}" style="flex:1; border:none; background:transparent; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:5px; padding:6px 0;">
+        <div style="width:18px; height:18px; transform:rotate(45deg); background:{{ incomeColor }};"></div>
+        <span style="font-size:11px; font-weight:600; color:{{ incomeColor }};">Income</span>
+      </button>
+      <button onClick="{{ goInvest }}" style="flex:1; border:none; background:transparent; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:5px; padding:6px 0;">
+        <div style="width:0; height:0; border-left:11px solid transparent; border-right:11px solid transparent; border-bottom:19px solid {{ investColor }};"></div>
+        <span style="font-size:11px; font-weight:600; color:{{ investColor }};">Invest</span>
+      </button>
+    </div>
+
+  </div>
+</x-import>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;460px&quot;,&quot;height&quot;:&quot;940px&quot;}}">
+class Component extends DCLogic {
+  state = { tab: 'home', strategy: 'avalanche', extra: 200, scenario: 'moderate', contrib: 500 };
+
+  debts = [
+    { name: 'Credit Card',  balance: 8400,  apr: 22.9, min: 210, original: 12000, color: '#ff8b6b' },
+    { name: 'Car Loan',     balance: 14200, apr: 6.4,  min: 320, original: 21000, color: '#f5c451' },
+    { name: 'Student Loan', balance: 22600, apr: 4.5,  min: 240, original: 28000, color: '#6bd0ff' },
+  ];
+
+  // income data (thousands)
+  years = [2021, 2022, 2023, 2024, 2025, 2026];
+  nominal = [68000, 71000, 74000, 78000, 82000, 85000];
+  cpi = [100, 108, 114, 119, 123, 127]; // 2021 = 100
+
+  fmt(n) { return '$' + Math.round(n).toLocaleString('en-US'); }
+  fmtK(n) { return '$' + Math.round(n / 1000) + 'K'; }
+
+  // ── debt amortization with rollover ──
+  simulate(strategy, extra) {
+    let list = this.debts.map(d => ({ ...d }));
+    let month = 0, totalInterest = 0;
+    while (list.some(d => d.balance > 0.5) && month < 720) {
+      month++;
+      list.forEach(d => { if (d.balance > 0) { const i = d.balance * (d.apr / 100 / 12); d.balance += i; totalInterest += i; } });
+      let pool = extra;
+      list.forEach(d => {
+        if (d.balance > 0) { const pay = Math.min(d.min, d.balance); d.balance -= pay; pool += Math.max(0, d.min - pay); }
+        else pool += d.min;
+      });
+      const active = list.filter(d => d.balance > 0);
+      active.sort((a, b) => strategy === 'avalanche' ? b.apr - a.apr : a.balance - b.balance);
+      for (const d of active) { if (pool <= 0) break; const pay = Math.min(pool, d.balance); d.balance -= pay; pool -= pay; }
+    }
+    return { months: month, totalInterest };
+  }
+
+  focusName(strategy) {
+    const s = [...this.debts].sort((a, b) => strategy === 'avalanche' ? b.apr - a.apr : a.balance - b.balance);
+    return s[0].name;
+  }
+
+  fv(P, pmt, annualRate, months) {
+    const r = annualRate / 100 / 12;
+    const g = Math.pow(1 + r, months);
+    return P * g + pmt * ((g - 1) / r);
+  }
+
+  // ── generic line chart ──
+  lineChart(series, opts) {
+    const w = 320, h = 150, pad = 10;
+    let all = []; series.forEach(s => all = all.concat(s.values));
+    const min = (opts && opts.min !== undefined) ? opts.min : Math.min(...all);
+    const max = Math.max(...all);
+    const span = (max - min) || 1;
+    const coords = vals => vals.map((v, i) => [
+      pad + (vals.length === 1 ? 0 : i * (w - 2 * pad) / (vals.length - 1)),
+      h - pad - ((v - min) / span) * (h - 2 * pad),
+    ]);
+    const kids = [];
+    [0.5, 1].forEach((f, i) => kids.push(React.createElement('line', {
+      key: 'g' + i, x1: pad, x2: w - pad, y1: h - pad - f * (h - 2 * pad), y2: h - pad - f * (h - 2 * pad),
+      stroke: 'rgba(255,255,255,0.06)', strokeWidth: 1,
+    })));
+    series.forEach((s, si) => {
+      const c = coords(s.values);
+      if (s.fill) {
+        const poly = c.map(p => p.join(',')).join(' ') + ` ${c[c.length - 1][0]},${h - pad} ${c[0][0]},${h - pad}`;
+        kids.push(React.createElement('polygon', { key: 'a' + si, points: poly, fill: s.fill }));
+      }
+      kids.push(React.createElement('polyline', {
+        key: 'l' + si, points: c.map(p => p.join(',')).join(' '),
+        fill: 'none', stroke: s.color, strokeWidth: 3, strokeLinejoin: 'round', strokeLinecap: 'round',
+      }));
+      const last = c[c.length - 1];
+      kids.push(React.createElement('circle', { key: 'd' + si, cx: last[0], cy: last[1], r: 4.5, fill: s.color, stroke: '#12241b', strokeWidth: 2 }));
+    });
+    return React.createElement('svg', { viewBox: `0 0 ${w} ${h}`, style: { width: '100%', height: 'auto', display: 'block' } }, kids);
+  }
+
+  renderVals() {
+    const { tab, strategy, extra, scenario, contrib } = this.state;
+    const go = t => () => this.setState({ tab: t });
+    const nav = c => c ? '#3ecf8e' : '#5f7a6c';
+
+    // ── debt ──
+    const sim = this.simulate(strategy, extra);
+    const base = this.simulate(strategy, 0);
+    const now = new Date(2026, 6, 1);
+    const payoff = new Date(now.getFullYear(), now.getMonth() + sim.months, 1);
+    const payoffDate = payoff.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    const yrs = Math.floor(sim.months / 12), mos = sim.months % 12;
+    const monthsLeftLabel = (yrs ? yrs + 'y ' : '') + mos + 'm to go';
+    const interestSaved = Math.max(0, base.totalInterest - sim.totalInterest);
+    const totalDebt = this.debts.reduce((s, d) => s + d.balance, 0);
+    const totalOriginal = this.debts.reduce((s, d) => s + d.original, 0);
+    const debtPaidPct = (1 - totalDebt / totalOriginal) * 100;
+    const minTotal = this.debts.reduce((s, d) => s + d.min, 0);
+    const focus = this.focusName(strategy);
+    const debtRows = this.debts.map(d => {
+      const pct = (1 - d.balance / d.original) * 100;
+      return {
+        name: d.name, color: d.color, balanceLabel: this.fmt(d.balance),
+        aprLabel: d.apr + '%', minLabel: this.fmt(d.min),
+        pctLabel: Math.round(pct) + '%', pctW: pct.toFixed(1) + '%',
+        isFocus: d.name === focus,
+      };
+    });
+
+    // debt ring (donut)
+    const R = 34, C = 2 * Math.PI * R;
+    const ring = React.createElement('svg', { width: 92, height: 92, viewBox: '0 0 92 92' }, [
+      React.createElement('circle', { key: 'bg', cx: 46, cy: 46, r: R, fill: 'none', stroke: 'rgba(255,255,255,0.09)', strokeWidth: 9 }),
+      React.createElement('circle', { key: 'fg', cx: 46, cy: 46, r: R, fill: 'none', stroke: '#3ecf8e', strokeWidth: 9, strokeLinecap: 'round', strokeDasharray: C, strokeDashoffset: C * (1 - debtPaidPct / 100), transform: 'rotate(-90 46 46)' }),
+      React.createElement('text', { key: 't', x: 46, y: 51, textAnchor: 'middle', fill: '#eaf3ee', fontSize: 20, fontWeight: 700, fontFamily: "'Space Grotesk',sans-serif" }, Math.round(debtPaidPct) + '%'),
+    ]);
+
+    const strategyBlurb = strategy === 'avalanche'
+      ? 'Avalanche targets your highest-interest debt first — the fastest way to minimize total interest paid.'
+      : 'Snowball clears your smallest balance first — slower on interest, but the quick wins keep you motivated.';
+
+    // ── income ──
+    const real = this.nominal.map((n, i) => n / (this.cpi[i] / 100));
+    const nominalNow = this.nominal[this.nominal.length - 1];
+    const realNow = real[real.length - 1];
+    const powerLoss = nominalNow - realNow;
+    const cumRaise = (this.nominal[5] / this.nominal[0] - 1) * 100;
+    const cumCpi = this.cpi[5] - 100;
+    const gap = cumRaise - cumCpi;
+    const raiseVerdict = gap >= 0
+      ? `Good news — your raises outpaced inflation by ${gap.toFixed(0)} points since 2021.`
+      : `Your raises trailed inflation by ${Math.abs(gap).toFixed(0)} points since 2021. In real terms, you earn slightly less than you did then.`;
+    const incomeChart = this.lineChart([
+      { values: this.nominal, color: '#3ecf8e' },
+      { values: real, color: '#f5c451' },
+    ], { min: 55000 });
+
+    // ── invest ──
+    const rate = { conservative: 5, moderate: 7, aggressive: 10 }[scenario];
+    const P0 = 42000, goal = 1000000, months = 360;
+    const projected = this.fv(P0, contrib, rate, months);
+    const totalContribs = P0 + contrib * months;
+    const totalGrowth = Math.max(0, projected - totalContribs);
+    const goalPct = Math.min(100, projected / goal * 100);
+    const balSeries = [], contSeries = [];
+    for (let y = 0; y <= 30; y += 2) {
+      balSeries.push(this.fv(P0, contrib, rate, y * 12));
+      contSeries.push(P0 + contrib * y * 12);
+    }
+    const investChart = this.lineChart([
+      { values: balSeries, color: '#3ecf8e', fill: 'rgba(62,207,142,0.12)' },
+      { values: contSeries, color: '#6bd0ff' },
+    ], { min: 0 });
+
+    return {
+      // nav / tabs
+      isHome: tab === 'home', isDebt: tab === 'debt', isIncome: tab === 'income', isInvest: tab === 'invest',
+      goHome: go('home'), goDebt: go('debt'), goIncome: go('income'), goInvest: go('invest'),
+      homeColor: nav(tab === 'home'), debtColor: nav(tab === 'debt'), incomeColor: nav(tab === 'income'), investColor: nav(tab === 'invest'),
+
+      // dashboard
+      payoffDate, monthsLeftLabel, debtRing: ring,
+      interestSavedLabel: this.fmt(interestSaved),
+      totalDebtLabel: this.fmt(totalDebt),
+      debtPaidLabel: Math.round(debtPaidPct) + '%',
+      realNowLabel: this.fmt(realNow),
+      raiseGapLabel: (gap >= 0 ? '+' : '') + gap.toFixed(0) + ' vs CPI',
+      investNowLabel: this.fmt(P0),
+      projectedLabel: this.fmtK(projected),
+      monthTotalLabel: this.fmt(minTotal + extra),
+      contribLabel: this.fmt(contrib),
+      extraLabel: this.fmt(extra),
+
+      // debt
+      strategyLabel: strategy === 'avalanche' ? 'Avalanche' : 'Snowball',
+      debtPaidPctW: debtPaidPct.toFixed(1) + '%',
+      totalOriginalLabel: this.fmt(totalOriginal),
+      setAvalanche: () => this.setState({ strategy: 'avalanche' }),
+      setSnowball: () => this.setState({ strategy: 'snowball' }),
+      avalancheBg: strategy === 'avalanche' ? '#3ecf8e' : 'transparent',
+      avalancheColor: strategy === 'avalanche' ? '#0f1f17' : '#8fa89a',
+      snowballBg: strategy === 'snowball' ? '#3ecf8e' : 'transparent',
+      snowballColor: strategy === 'snowball' ? '#0f1f17' : '#8fa89a',
+      strategyBlurb,
+      extra, onExtra: e => this.setState({ extra: +e.target.value }),
+      debtRows, minTotalLabel: this.fmt(minTotal),
+
+      // income
+      nominalNowLabel: this.fmt(nominalNow),
+      powerLossLabel: this.fmt(powerLoss),
+      cumRaiseLabel: '+' + cumRaise.toFixed(0) + '%',
+      cumCpiLabel: '+' + cumCpi.toFixed(0) + '%',
+      raiseBarW: Math.min(100, cumRaise / 40 * 100) + '%',
+      cpiBarW: Math.min(100, cumCpi / 40 * 100) + '%',
+      raiseVerdict, incomeChart,
+
+      // invest
+      setConservative: () => this.setState({ scenario: 'conservative' }),
+      setModerate: () => this.setState({ scenario: 'moderate' }),
+      setAggressive: () => this.setState({ scenario: 'aggressive' }),
+      consBg: scenario === 'conservative' ? '#3ecf8e' : 'transparent',
+      consColor: scenario === 'conservative' ? '#0f1f17' : '#8fa89a',
+      modBg: scenario === 'moderate' ? '#3ecf8e' : 'transparent',
+      modColor: scenario === 'moderate' ? '#0f1f17' : '#8fa89a',
+      aggBg: scenario === 'aggressive' ? '#3ecf8e' : 'transparent',
+      aggColor: scenario === 'aggressive' ? '#0f1f17' : '#8fa89a',
+      contrib, onContrib: e => this.setState({ contrib: +e.target.value }),
+      investChart,
+      goalLabel: '$1.0M',
+      goalPctW: goalPct.toFixed(1) + '%',
+      goalPctLabel: goalPct.toFixed(0) + '%',
+      contribShareW: (totalContribs / projected * 100).toFixed(1) + '%',
+      totalContribsLabel: this.fmt(totalContribs),
+      totalGrowthLabel: this.fmt(totalGrowth),
+    };
+  }
+}
+</script>
+</body>
+</html>

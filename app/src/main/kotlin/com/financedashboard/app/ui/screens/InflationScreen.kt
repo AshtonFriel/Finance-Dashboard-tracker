@@ -1,14 +1,18 @@
 package com.financedashboard.app.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -20,13 +24,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.financedashboard.app.AppViewModel
 import com.financedashboard.app.ui.charts.LineChart
 import com.financedashboard.app.ui.charts.Series
 import com.financedashboard.app.ui.charts.fullCurrency
+import com.financedashboard.app.ui.theme.Fiscal
 import com.financedashboard.app.ui.theme.LocalChartColors
 
 @Composable
@@ -42,12 +47,16 @@ fun InflationScreen(vm: AppViewModel) {
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .padding(horizontal = 18.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Inflation impact", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        Text("Income vs inflation", style = MaterialTheme.typography.headlineSmall, color = Fiscal.TextPrimary)
+        Text(
+            "Are your raises keeping up?",
+            style = MaterialTheme.typography.bodySmall,
+            color = Fiscal.TextSecondary,
+        )
 
-        // Income source + baseline controls in one row, above the charts.
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 selected = source == AppViewModel.IncomeSource.MERGED,
@@ -66,26 +75,97 @@ fun InflationScreen(vm: AppViewModel) {
 
         val imp = impact
         if (imp == null) {
-            Card {
-                Column(Modifier.padding(16.dp)) {
-                    Text("Not enough income data", style = MaterialTheme.typography.titleMedium)
+            FiscalCard {
+                Text("Not enough income data", style = MaterialTheme.typography.titleMedium, color = Fiscal.TextPrimary)
+                Text(
+                    "Import a Transactions CSV (paychecks are detected automatically) or enter gross annual " +
+                        "income for at least two consecutive years.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Fiscal.TextSecondary,
+                )
+            }
+        } else {
+            val last = imp.years.last()
+
+            // Hero: nominal vs real + dual-line chart.
+            HeroCard {
+                Row {
+                    Column(Modifier.weight(1f)) {
+                        Eyebrow("Nominal ${last.year}")
+                        Text(fullCurrency(last.actualIncome), style = MaterialTheme.typography.titleLarge, color = Fiscal.TextPrimary)
+                    }
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                        Eyebrow("Real (${imp.baseYear} $)")
+                        Text(fullCurrency(last.realIncome), style = MaterialTheme.typography.titleLarge, color = Fiscal.Amber)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                val labels = listOf(imp.baseYear) + imp.years.map { it.year }
+                val nominal = listOf(imp.baseIncome) + imp.years.map { it.actualIncome }
+                val real = listOf(imp.baseIncome) + imp.years.map { it.realIncome }
+                LineChart(
+                    series = listOf(
+                        Series("Nominal (what you're paid)", nominal, Fiscal.Accent),
+                        Series("Real buying power", real, Fiscal.Amber),
+                    ),
+                    xLabel = { i -> labels.getOrNull(i)?.toString() ?: "" },
+                    // Pin y-min just below the smallest value to amplify the divergence.
+                    yMinOverride = minOf(nominal.min(), real.min()) * 0.97,
+                )
+            }
+
+            // Purchasing power lost.
+            val lost = -imp.cumulativeNominalGap
+            FiscalCard {
+                Text(
+                    "Purchasing power ${if (lost >= 0) "lost" else "gained"} since ${imp.baseYear}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Fiscal.TextSecondary,
+                )
+                Text(
+                    fullCurrency(kotlin.math.abs(lost)),
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = if (lost >= 0) Fiscal.Coral else Fiscal.Accent,
+                )
+                Text(
+                    "Cumulative gap between what you earned and what the same purchasing power " +
+                        "would have required as prices rose.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Fiscal.TextSecondary,
+                )
+            }
+
+            // Raises vs CPI.
+            val raisePts = (last.actualIncome / imp.baseIncome - 1.0) * 100
+            val cpiPts = (1.0 / imp.dollarValueAtEnd - 1.0) * 100
+            val gapPts = raisePts - cpiPts
+            FiscalCard {
+                Eyebrow("Raises vs CPI since ${imp.baseYear}")
+                Spacer(Modifier.height(10.dp))
+                LabeledBar("Cumulative raises", "+${"%.0f".format(raisePts)}%", raisePts, Fiscal.Accent)
+                Spacer(Modifier.height(8.dp))
+                LabeledBar("Cumulative CPI", "+${"%.0f".format(cpiPts)}%", cpiPts, Fiscal.Amber)
+                Spacer(Modifier.height(12.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(
+                            if (gapPts < 0) Fiscal.CoralTintBg else Fiscal.AccentTint,
+                            RoundedCornerShape(12.dp),
+                        )
+                        .padding(12.dp),
+                ) {
                     Text(
-                        "Import a Transactions CSV (paychecks are detected automatically) or enter gross annual " +
-                            "income for at least two consecutive years to see your purchasing-power analysis.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = chart.secondaryInk,
+                        if (gapPts < 0)
+                            "Your raises trailed inflation by ${"%.0f".format(-gapPts)} points since ${imp.baseYear}. " +
+                                "In real terms, you earn less than you did then."
+                        else
+                            "Good news — your raises outpaced inflation by ${"%.0f".format(gapPts)} points since ${imp.baseYear}.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (gapPts < 0) Fiscal.CoralTintText else Fiscal.Accent,
                     )
                 }
             }
-        } else {
-            val lost = -imp.cumulativeNominalGap
-            StatTile(
-                label = "Purchasing power ${if (lost >= 0) "lost" else "gained"} since ${imp.baseYear}",
-                value = fullCurrency(kotlin.math.abs(lost)),
-                accent = if (lost >= 0) chart.critical else chart.good,
-                sublabel = "Cumulative gap between actual income and income keeping pace with CPI",
-                modifier = Modifier.fillMaxWidth(),
-            )
 
             // Baseline year picker.
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -99,106 +179,85 @@ fun InflationScreen(vm: AppViewModel) {
                 }
             }
 
-            SectionTitle("Actual vs. inflation-adjusted income")
-            Card {
-                Column(Modifier.padding(12.dp)) {
-                    val labels = listOf(imp.baseYear) + imp.years.map { it.year }
-                    val actual = listOf(imp.baseIncome) + imp.years.map { it.actualIncome }
-                    val needed = listOf(imp.baseIncome) + imp.years.map { it.neededIncome }
-                    LineChart(
-                        series = listOf(
-                            Series("Actual income", actual, chart.seriesBlue),
-                            Series("Needed to keep pace", needed, chart.mutedInk, dashed = true),
-                        ),
-                        xLabel = { i -> labels.getOrNull(i)?.toString() ?: "" },
-                        shadeBetween = 0 to 1,
-                        shadeColor = chart.critical,
-                    )
-                }
+            // Purchasing power of a base-year dollar.
+            Eyebrow("What a ${imp.baseYear} dollar buys now")
+            FiscalCard {
+                LineChart(
+                    series = listOf(
+                        Series("Value of ${imp.baseYear} $1.00", purchasingPower.map { it.second }, Fiscal.Amber),
+                    ),
+                    xLabel = { i -> purchasingPower.getOrNull(i)?.first?.toString() ?: "" },
+                    yFormatter = { "$${"%.2f".format(it)}" },
+                )
+                Text(
+                    "A ${imp.baseYear} dollar is worth $${"%.2f".format(imp.dollarValueAtEnd)} in ${last.year} dollars.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Fiscal.TextSecondary,
+                )
             }
 
-            SectionTitle("What a ${imp.baseYear} dollar buys now")
-            Card {
-                Column(Modifier.padding(12.dp)) {
-                    LineChart(
-                        series = listOf(
-                            Series(
-                                "Value of ${imp.baseYear} $1.00",
-                                purchasingPower.map { it.second },
-                                chart.seriesViolet,
-                            ),
+            // Year-by-year table.
+            Eyebrow("Year-by-year breakdown")
+            FiscalCard {
+                val weights = listOf(0.7f, 1.2f, 1.2f, 1f)
+                TableRow(listOf("Year", "Actual", "Needed", "Gap"), weights, emphasize = true)
+                HorizontalDivider(color = chart.gridline)
+                TableRow(
+                    listOf(imp.baseYear.toString(), fullCurrency(imp.baseIncome), "baseline", "—"),
+                    weights,
+                )
+                for (row in imp.years) {
+                    TableRow(
+                        listOf(
+                            row.year.toString(),
+                            fullCurrency(row.actualIncome),
+                            fullCurrency(row.neededIncome),
+                            signedCurrency(row.nominalGap),
                         ),
-                        xLabel = { i -> purchasingPower.getOrNull(i)?.first?.toString() ?: "" },
-                        yFormatter = { "$${"%.2f".format(it)}" },
-                    )
-                    Text(
-                        "A ${imp.baseYear} dollar is worth $${"%.2f".format(imp.dollarValueAtEnd)} in ${imp.years.last().year} dollars.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = chart.secondaryInk,
+                        weights,
+                        color = gapColor(row.nominalGap),
                     )
                 }
-            }
-
-            SectionTitle("Year-by-year breakdown")
-            Card {
-                Column(Modifier.padding(12.dp)) {
-                    val weights = listOf(0.7f, 1.2f, 1.2f, 1f)
-                    TableRow(listOf("Year", "Actual", "Needed", "Gap"), weights, emphasize = true)
-                    HorizontalDivider(color = chart.gridline)
-                    TableRow(
-                        listOf(imp.baseYear.toString(), fullCurrency(imp.baseIncome), "baseline", "—"),
-                        weights,
-                    )
-                    for (row in imp.years) {
-                        TableRow(
-                            listOf(
-                                row.year.toString(),
-                                fullCurrency(row.actualIncome),
-                                fullCurrency(row.neededIncome),
-                                signedCurrency(row.nominalGap),
-                            ),
-                            weights,
-                            color = gapColor(row.nominalGap),
-                        )
-                    }
-                    HorizontalDivider(color = chart.gridline)
-                    TableRow(
-                        listOf("Total", "", "", signedCurrency(imp.cumulativeNominalGap)),
-                        weights,
-                        emphasize = true,
-                        color = gapColor(imp.cumulativeNominalGap),
-                    )
-                    val last = imp.years.last()
-                    Text(
-                        "In ${imp.baseYear} dollars, ${last.year} income is ${fullCurrency(last.realIncome)} " +
-                            "(${signedCurrency(last.realGap)} vs. ${imp.baseYear}). To restore ${imp.baseYear} purchasing " +
-                            "power you'd need ${fullCurrency(last.neededIncome)}.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = chart.secondaryInk,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
+                HorizontalDivider(color = chart.gridline)
+                TableRow(
+                    listOf("Total", "", "", signedCurrency(imp.cumulativeNominalGap)),
+                    weights,
+                    emphasize = true,
+                    color = gapColor(imp.cumulativeNominalGap),
+                )
+                Text(
+                    "To restore ${imp.baseYear} purchasing power you'd need ${fullCurrency(last.neededIncome)} today.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Fiscal.TextSecondary,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
             }
         }
     }
 
     if (showIncomeDialog) {
-        ManualIncomeDialog(vm) { showIncomeDialog = false }
+        NumberEntryDialog(
+            title = "Add gross income for a year",
+            fields = listOf(
+                "Year" to java.time.LocalDate.now().year.minus(1).toString(),
+                "Gross income (\$)" to "",
+            ),
+            onConfirm = { (year, amount) ->
+                vm.setManualIncome(year.toInt(), amount)
+                showIncomeDialog = false
+            },
+            onDismiss = { showIncomeDialog = false },
+        )
     }
 }
 
 @Composable
-private fun ManualIncomeDialog(vm: AppViewModel, onDismiss: () -> Unit) {
-    NumberEntryDialog(
-        title = "Add gross income for a year",
-        fields = listOf(
-            "Year" to java.time.LocalDate.now().year.minus(1).toString(),
-            "Gross income (\$)" to "",
-        ),
-        onConfirm = { (year, amount) ->
-            vm.setManualIncome(year.toInt(), amount)
-            onDismiss()
-        },
-        onDismiss = onDismiss,
-    )
+private fun LabeledBar(label: String, value: String, points: Double, color: androidx.compose.ui.graphics.Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = Fiscal.TextSecondary, modifier = Modifier.weight(1f))
+        Text(value, style = MaterialTheme.typography.labelLarge, color = color)
+    }
+    Spacer(Modifier.height(4.dp))
+    // Scaled so 40 points fills the bar, per the design.
+    FiscalBar(progress = (points / 40.0).toFloat().coerceIn(0.02f, 1f), height = 8.dp, color = color, gradient = false)
 }

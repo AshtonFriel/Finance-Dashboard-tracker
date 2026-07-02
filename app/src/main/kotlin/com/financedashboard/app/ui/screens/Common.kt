@@ -31,30 +31,22 @@ fun StatTile(
     sublabel: String? = null,
 ) {
     val chart = LocalChartColors.current
-    Card(modifier = modifier) {
-        Column(Modifier.padding(12.dp)) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = chart.secondaryInk)
-            Text(
-                value,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = if (accent == Color.Unspecified) chart.primaryInk else accent,
-            )
-            sublabel?.let {
-                Text(it, style = MaterialTheme.typography.labelSmall, color = chart.mutedInk)
-            }
+    FiscalCard(modifier = modifier) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = chart.secondaryInk)
+        Text(
+            value,
+            style = MaterialTheme.typography.titleLarge,
+            color = if (accent == Color.Unspecified) chart.primaryInk else accent,
+        )
+        sublabel?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = chart.mutedInk)
         }
     }
 }
 
 @Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold,
-        modifier = modifier.padding(top = 8.dp, bottom = 4.dp),
-    )
+    Eyebrow(text, modifier = modifier.padding(top = 10.dp, bottom = 2.dp))
 }
 
 @Composable

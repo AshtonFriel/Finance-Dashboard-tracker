@@ -1,5 +1,7 @@
 <resources>
     <style name="Theme.FinanceDashboard" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowBackground">#0F1F17</item>
+        <item name="android:statusBarColor">#0F1F17</item>
+        <item name="android:navigationBarColor">#0C1912</item>
     </style>
 </resources>

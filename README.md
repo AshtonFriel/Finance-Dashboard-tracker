@@ -13,6 +13,10 @@ An Android app that tracks personal finances from CSV exports, quantifies how mu
 - **Accounts** — auto-classified (cash / investment / debt / asset) with manual override, balance sparklines, 12-month spending donut.
 - **Import** — Monarch-style `Balances` (`Date,Balance,Account`) and `Transactions` CSV exports via the system file picker; streaming RFC-4180 parser; re-import replaces prior data.
 
+## Design
+
+The UI implements the **Fiscal** design language from the handoff in [`docs/design-handoff/`](docs/design-handoff/): a dark-green theme (`#0f1f17` background, `#3ecf8e` accent, coral/amber/sky pillar colors), Space Grotesk for numbers and titles with IBM Plex Sans for body text, gradient hero cards with progress rings, custom segmented controls, and geometric pillar glyphs. Fonts are bundled (both OFL-licensed).
+
 ## Project layout
 
 - `core/` — pure-Kotlin module: CSV parsers, account classifier, and the three engines (inflation, amortization, investment). Fully unit-tested; no Android dependencies.

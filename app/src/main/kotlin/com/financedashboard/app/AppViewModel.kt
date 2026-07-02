@@ -50,7 +50,12 @@ data class DebtInput(
     val reviewNote: String? = null,
     val latestDate: java.time.LocalDate? = null,
     val last4: String? = null,
-)
+    /** Highest amount ever owed on this account (>= balance). */
+    val originalBalance: Double = 0.0,
+) {
+    val paidProgress: Double
+        get() = if (originalBalance > 0.005) (1.0 - balance / originalBalance).coerceIn(0.0, 1.0) else 0.0
+}
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -107,7 +112,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * Active debts are auto-included; extractor suspects (duplicates, card
      * statement balances) default to excluded until the user opts them in.
      */
-    val debtInputs = combine(debtExtraction, repo.debtAssumptions) { extraction, assumptions ->
+    val debtInputs = combine(debtExtraction, repo.debtAssumptions, repo.maxOwedByAccount) { extraction, assumptions, maxOwed ->
         fun input(c: com.financedashboard.core.classify.DebtExtractor.Candidate, note: String?, defaultInclude: Boolean): DebtInput {
             val a = assumptions[c.accountName]
             return DebtInput(
@@ -119,6 +124,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 reviewNote = note,
                 latestDate = c.latestDate,
                 last4 = c.last4,
+                originalBalance = maxOf(maxOwed[c.accountName] ?: 0.0, -c.balance),
             )
         }
         val active = extraction.active.map { input(it, null, defaultInclude = true) }

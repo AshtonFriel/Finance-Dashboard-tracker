@@ -44,6 +44,7 @@ private val monthFmt = DateTimeFormatter.ofPattern("MMM yyyy")
 fun DebtsScreen(vm: AppViewModel) {
     val chart = LocalChartColors.current
     val debts by vm.debtInputs.collectAsState()
+    val extraction by vm.debtExtraction.collectAsState()
     val plan by vm.debtPlan.collectAsState()
     val baseline by vm.debtPlanBaseline.collectAsState()
     val comparison by vm.strategyComparison.collectAsState()
@@ -83,31 +84,41 @@ fun DebtsScreen(vm: AppViewModel) {
             modifier = Modifier.fillMaxWidth(),
         )
 
-        // Per-debt cards with editable assumptions.
-        for (d in debts) {
-            Card(Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(d.accountName, style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "${fullCurrency(d.balance)} • ${d.aprPct}% APR • ${fullCurrency(d.minPayment)}/mo" +
-                                if (!d.includeInPlan) " • excluded" else "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = chart.secondaryInk,
-                        )
-                    }
-                    TextButton(onClick = { editing = d }) { Text("Edit") }
-                }
-            }
+        // Confirmed-active debts (latest snapshot per account, deduplicated).
+        for (d in debts.filter { it.reviewNote == null }) {
+            DebtCard(d, chart.secondaryInk) { editing = d }
         }
         Text(
             "APRs and payments are assumptions — CSV exports don't include them. Tap Edit to set real values.",
             style = MaterialTheme.typography.labelSmall,
             color = chart.mutedInk,
         )
+
+        val suspects = debts.filter { it.reviewNote != null }
+        if (suspects.isNotEmpty()) {
+            SectionTitle("Needs review — excluded until you confirm")
+            for (d in suspects) {
+                DebtCard(d, chart.seriesYellow) { editing = d }
+            }
+            Text(
+                "Suspected duplicates and card statement balances are never auto-counted. " +
+                    "Tap Edit and set include = 1 if one is a real, separate debt.",
+                style = MaterialTheme.typography.labelSmall,
+                color = chart.mutedInk,
+            )
+        }
+        val excluded = extraction.excluded
+        if (excluded.isNotEmpty()) {
+            Text(
+                "${excluded.size} closed accounts excluded: " +
+                    excluded.joinToString { e ->
+                        e.candidate.accountName.take(22) +
+                            if (e.reason == com.financedashboard.core.classify.DebtExtractor.ExclusionReason.STALE) " (stale)" else " (paid off)"
+                    },
+                style = MaterialTheme.typography.labelSmall,
+                color = chart.mutedInk,
+            )
+        }
 
         SectionTitle("Strategy")
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -273,5 +284,32 @@ fun DebtsScreen(vm: AppViewModel) {
             },
             onDismiss = { editing = null },
         )
+    }
+}
+
+@Composable
+private fun DebtCard(
+    d: DebtInput,
+    accent: androidx.compose.ui.graphics.Color,
+    onEdit: () -> Unit,
+) {
+    val chart = LocalChartColors.current
+    Card(Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(d.accountName, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "${fullCurrency(d.balance)} • ${d.aprPct}% APR • ${fullCurrency(d.minPayment)}/mo" +
+                        (d.latestDate?.let { " • as of $it" } ?: "") +
+                        if (!d.includeInPlan) " • excluded" else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = chart.secondaryInk,
+                )
+                d.reviewNote?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = accent)
+                }
+            }
+            TextButton(onClick = onEdit) { Text("Edit") }
+        }
     }
 }

@@ -46,6 +46,10 @@ data class DebtInput(
     val aprPct: Double,
     val minPayment: Double,
     val includeInPlan: Boolean,
+    /** Non-null when the extractor flagged this account instead of auto-counting it. */
+    val reviewNote: String? = null,
+    val latestDate: java.time.LocalDate? = null,
+    val last4: String? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -92,19 +96,41 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }.asState(emptyList())
 
     // ---- Debts ----
-    val debtInputs = combine(accounts, repo.debtAssumptions) { accs, assumptions ->
-        accs.filter { it.type == AccountType.DEBT && it.latestBalance < -0.005 }
-            .map { acc ->
-                val a = assumptions[acc.name]
-                DebtInput(
-                    accountName = acc.name,
-                    balance = -acc.latestBalance,
-                    aprPct = a?.aprPct ?: DefaultRates.aprFor(acc.name),
-                    minPayment = a?.minPayment ?: DefaultRates.minPaymentFor(-acc.latestBalance),
-                    includeInPlan = a?.includeInPlan ?: true,
-                )
+    val debtExtraction = repo.debtExtraction.asState(
+        com.financedashboard.core.classify.DebtExtractor.Extraction(
+            java.time.LocalDate.MIN, emptyList(), emptyList(), emptyList(),
+        )
+    )
+
+    /**
+     * Active debts are auto-included; extractor suspects (duplicates, card
+     * statement balances) default to excluded until the user opts them in.
+     */
+    val debtInputs = combine(debtExtraction, repo.debtAssumptions) { extraction, assumptions ->
+        fun input(c: com.financedashboard.core.classify.DebtExtractor.Candidate, note: String?, defaultInclude: Boolean): DebtInput {
+            val a = assumptions[c.accountName]
+            return DebtInput(
+                accountName = c.accountName,
+                balance = -c.balance,
+                aprPct = a?.aprPct ?: DefaultRates.aprFor(c.accountName),
+                minPayment = a?.minPayment ?: DefaultRates.minPaymentFor(-c.balance),
+                includeInPlan = a?.includeInPlan ?: defaultInclude,
+                reviewNote = note,
+                latestDate = c.latestDate,
+                last4 = c.last4,
+            )
+        }
+        val active = extraction.active.map { input(it, null, defaultInclude = true) }
+        val review = extraction.needsReview.map { r ->
+            val note = when (r.reason) {
+                com.financedashboard.core.classify.DebtExtractor.ReviewReason.SUSPECTED_DUPLICATE ->
+                    "Suspected duplicate of ${r.duplicateOf}"
+                com.financedashboard.core.classify.DebtExtractor.ReviewReason.CARD_STATEMENT_BALANCE ->
+                    "Card statement balance — include only if it revolves"
             }
-            .sortedByDescending { it.balance }
+            input(r.candidate, note, defaultInclude = false)
+        }
+        (active + review).sortedWith(compareBy({ it.reviewNote != null }, { -it.balance }))
     }.asState(emptyList())
 
     val extraMonthly = MutableStateFlow(0.0)

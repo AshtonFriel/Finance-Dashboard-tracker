@@ -73,6 +73,14 @@ class FinanceRepository(private val db: AppDatabase) {
             }
         }
 
+    /** Strict-rules debt identification (latest-only, stale/paid-off excluded, duplicates flagged). */
+    val debtExtraction: Flow<com.financedashboard.core.classify.DebtExtractor.Extraction> =
+        db.balanceDao().all().map { rows ->
+            com.financedashboard.core.classify.DebtExtractor.extract(
+                rows.map { com.financedashboard.core.model.BalanceRecord(LocalDate.ofEpochDay(it.epochDay), it.balance, it.accountName) }
+            )
+        }
+
     fun balanceHistory(account: String): Flow<List<Pair<LocalDate, Double>>> =
         db.balanceDao().forAccount(account).map { rows ->
             rows.map { LocalDate.ofEpochDay(it.epochDay) to it.balance }

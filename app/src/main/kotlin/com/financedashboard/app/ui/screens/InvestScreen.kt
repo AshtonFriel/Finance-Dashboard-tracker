@@ -105,7 +105,8 @@ fun InvestScreen(vm: AppViewModel) {
                 Spacer(Modifier.height(12.dp))
                 fun values(p: InvestmentEngine.Projection) =
                     listOf(principal) + p.years.map { if (showReal) it.endBalanceReal else it.endBalanceNominal }
-                val contributions = (0..horizon).map { y -> principal + contribution * 12 * y }
+                // Cumulative contributions, including any redirected debt budget, from the projection itself.
+                val contributions = bnd.expected.years.runningFold(principal) { acc, row -> acc + row.contributions }
                 LineChart(
                     series = listOf(
                         Series("Total balance", values(bnd.expected), Fiscal.Accent),
@@ -121,7 +122,7 @@ fun InvestScreen(vm: AppViewModel) {
             SegmentedPill(
                 options = scenarios,
                 selected = scenarios.minByOrNull { kotlin.math.abs(it.ratePct - expectedReturn) }!!,
-                onSelect = { vm.expectedReturnPct.value = it.ratePct },
+                onSelect = { vm.setExpectedReturnPct(it.ratePct) },
                 label = { it.label },
                 sublabel = { "${it.ratePct.toInt()}%" },
             )
@@ -134,9 +135,33 @@ fun InvestScreen(vm: AppViewModel) {
                 }
                 Slider(
                     value = contribution.toFloat(),
-                    onValueChange = { vm.monthlyContribution.value = (it / 50).toInt() * 50.0 },
+                    onValueChange = { vm.setMonthlyContribution((it / 50).toInt() * 50.0) },
                     valueRange = 0f..3000f,
                 )
+            }
+
+            // Debt-budget redirect: freed payments roll into contributions at payoff.
+            val redirectOn by vm.redirectDebtBudget.collectAsState()
+            val redirect by vm.redirectInfo.collectAsState()
+            val debts by vm.debtInputs.collectAsState()
+            if (debts.any { it.includeInPlan }) {
+                FiscalCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(checked = redirectOn, onCheckedChange = { vm.setRedirectDebtBudget(it) })
+                        Column(Modifier.padding(start = 10.dp)) {
+                            Text("Redirect debt budget when debt-free", style = MaterialTheme.typography.labelLarge, color = Fiscal.TextPrimary)
+                            Text(
+                                redirect?.let {
+                                    "+${fullCurrency(it.amount)}/mo added to contributions from " +
+                                        java.time.YearMonth.now().plusMonths(it.fromMonth.toLong())
+                                            .format(java.time.format.DateTimeFormatter.ofPattern("MMM yyyy"))
+                                } ?: "Once your payoff plan completes, its full monthly budget keeps working here",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (redirect != null) Fiscal.Accent else Fiscal.TextMuted,
+                            )
+                        }
+                    }
+                }
             }
 
             // Horizon + real toggle.
@@ -144,12 +169,12 @@ fun InvestScreen(vm: AppViewModel) {
                 for (y in listOf(5, 10, 20, 30)) {
                     FilterChip(
                         selected = horizon == y,
-                        onClick = { vm.horizonYears.value = y },
+                        onClick = { vm.setHorizonYears(y) },
                         label = { Text("${y}y") },
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                Switch(checked = showReal, onCheckedChange = { vm.showReal.value = it })
+                Switch(checked = showReal, onCheckedChange = { vm.setShowReal(it) })
             }
             Text(
                 if (showReal) "Showing today's dollars (deflated ${"%.1f".format(inflation)}%/yr)" else "Showing nominal dollars",
@@ -159,7 +184,7 @@ fun InvestScreen(vm: AppViewModel) {
             if (showReal) {
                 Slider(
                     value = inflation.toFloat(),
-                    onValueChange = { vm.assumedInflationPct.value = (it * 10).toInt() / 10.0 },
+                    onValueChange = { vm.setAssumedInflationPct((it * 10).toInt() / 10.0) },
                     valueRange = 0f..8f,
                 )
             }
@@ -184,7 +209,7 @@ fun InvestScreen(vm: AppViewModel) {
             }
 
             // Where the money comes from.
-            val totalContrib = principal + contribution * 12 * horizon
+            val totalContrib = principal + bnd.expected.years.sumOf { it.contributions }
             val growth = (nominalAtHorizon - totalContrib).coerceAtLeast(0.0)
             val contribShare = (totalContrib / nominalAtHorizon).coerceIn(0.0, 1.0)
             FiscalCard {

@@ -136,7 +136,7 @@ fun DebtsScreen(vm: AppViewModel) {
         SegmentedPill(
             options = PayoffStrategy.entries.toList(),
             selected = strategy,
-            onSelect = { vm.strategy.value = it },
+            onSelect = { vm.setStrategy(it) },
             label = { it.name.lowercase().replaceFirstChar { c -> c.uppercase() }.replace("_", "-") },
         )
         Text(
@@ -153,7 +153,7 @@ fun DebtsScreen(vm: AppViewModel) {
             }
             Slider(
                 value = extra.toFloat(),
-                onValueChange = { vm.extraMonthly.value = (it / 25).toInt() * 25.0 },
+                onValueChange = { vm.setExtraMonthly((it / 25).toInt() * 25.0) },
                 valueRange = 0f..2000f,
             )
         }

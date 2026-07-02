@@ -141,8 +141,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         (active + review).sortedWith(compareBy({ it.reviewNote != null }, { -it.balance }))
     }.asState(emptyList())
 
-    val extraMonthly = MutableStateFlow(0.0)
-    val strategy = MutableStateFlow(PayoffStrategy.AVALANCHE)
+    val extraMonthly = settings.extraMonthly.asState(0.0)
+    val strategy = settings.strategy.map { s ->
+        runCatching { PayoffStrategy.valueOf(s) }.getOrDefault(PayoffStrategy.AVALANCHE)
+    }.asState(PayoffStrategy.AVALANCHE)
+
+    fun setExtraMonthly(v: Double) = viewModelScope.launch { settings.setExtraMonthly(v) }
+    fun setStrategy(v: PayoffStrategy) = viewModelScope.launch { settings.setStrategy(v.name) }
 
     private fun List<DebtInput>.toDebts() = filter { it.includeInPlan }
         .map { Debt(it.accountName, it.balance, it.aprPct, it.minPayment) }
@@ -214,26 +219,62 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         accs.filter { it.type == AccountType.INVESTMENT && it.latestBalance > 0.005 }
     }.asState(emptyList())
 
-    val horizonYears = MutableStateFlow(20)
-    val monthlyContribution = MutableStateFlow(500.0)
-    val expectedReturnPct = MutableStateFlow(7.0)
-    val assumedInflationPct = MutableStateFlow(2.7)
-    val showReal = MutableStateFlow(false)
+    val horizonYears = settings.horizonYears.asState(20)
+    val monthlyContribution = settings.monthlyContribution.asState(500.0)
+    val expectedReturnPct = settings.expectedReturnPct.asState(7.0)
+    val assumedInflationPct = settings.assumedInflationPct.asState(2.7)
+    val showReal = settings.showReal.asState(false)
+    val redirectDebtBudget = settings.redirectDebtBudget.asState(false)
 
-    val investmentBand = combine(
-        investmentAccounts, horizonYears, monthlyContribution, expectedReturnPct, assumedInflationPct,
-    ) { accs, years, contrib, expected, inflation ->
-        val principal = accs.sumOf { it.latestBalance }
+    fun setHorizonYears(v: Int) = viewModelScope.launch { settings.setHorizonYears(v) }
+    fun setMonthlyContribution(v: Double) = viewModelScope.launch { settings.setMonthlyContribution(v) }
+    fun setExpectedReturnPct(v: Double) = viewModelScope.launch { settings.setExpectedReturnPct(v) }
+    fun setAssumedInflationPct(v: Double) = viewModelScope.launch { settings.setAssumedInflationPct(v) }
+    fun setShowReal(v: Boolean) = viewModelScope.launch { settings.setShowReal(v) }
+    fun setRedirectDebtBudget(v: Boolean) = viewModelScope.launch { settings.setRedirectDebtBudget(v) }
+
+    /** Freed debt budget flowing into investments once the payoff plan completes. */
+    data class Redirect(val fromMonth: Int, val amount: Double)
+
+    val redirectInfo = combine(redirectDebtBudget, debtPlan, debtInputs, extraMonthly) { enabled, plan, inputs, extra ->
+        val payoff = plan?.plan?.payoffMonth
+        if (!enabled || payoff == null) null
+        else Redirect(
+            fromMonth = YearMonth.now().until(payoff, java.time.temporal.ChronoUnit.MONTHS).toInt().coerceAtLeast(0),
+            amount = inputs.filter { it.includeInPlan }.sumOf { it.minPayment } + extra,
+        )
+    }.asState(null)
+
+    private data class InvestParams(val years: Int, val contrib: Double, val expected: Double, val inflation: Double)
+
+    private val investParams = combine(
+        horizonYears, monthlyContribution, expectedReturnPct, assumedInflationPct,
+    ) { years, contrib, expected, inflation -> InvestParams(years, contrib, expected, inflation) }
+
+    val investmentBand = combine(investmentAccounts, investParams, redirectInfo) { accs, p, redirect ->
         InvestmentEngine.scenarioBand(
-            principal = principal,
-            monthlyContribution = contrib,
-            years = years,
-            inflationPct = inflation,
-            pessimisticPct = (expected - 4.0).coerceAtLeast(0.0),
-            expectedPct = expected,
-            optimisticPct = expected + 3.0,
+            principal = accs.sumOf { it.latestBalance },
+            monthlyContribution = p.contrib,
+            years = p.years,
+            inflationPct = p.inflation,
+            pessimisticPct = (p.expected - 4.0).coerceAtLeast(0.0),
+            expectedPct = p.expected,
+            optimisticPct = p.expected + 3.0,
+            redirectFromMonth = redirect?.fromMonth,
+            redirectAmount = redirect?.amount ?: 0.0,
         )
     }.flowOn(Dispatchers.Default).asState(null)
+
+    // ---- Cash flow ----
+    data class CashFlowMonth(val month: YearMonth, val income: Double, val spending: Double)
+
+    val cashFlow = combine(repo.monthlyPaychecks(12), repo.monthlyExpenses(12)) { income, spending ->
+        val incomeByMonth = income.toMap()
+        val spendByMonth = spending.toMap()
+        (incomeByMonth.keys + spendByMonth.keys).sorted().map { m ->
+            CashFlowMonth(m, incomeByMonth[m] ?: 0.0, spendByMonth[m] ?: 0.0)
+        }
+    }.asState(emptyList())
 
     // ---- Spending ----
     val spendingLastYear = repo.spendingByCategory(java.time.LocalDate.now().minusMonths(12)).asState(emptyList())

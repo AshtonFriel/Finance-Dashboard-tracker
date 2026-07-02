@@ -181,6 +181,10 @@ fun DashboardScreen(vm: AppViewModel, navController: NavHostController) {
 
         EmergencyFundSection(vm)
 
+        CashFlowSection(vm)
+
+        MilestonesSection(vm)
+
         Eyebrow("Assets vs. debts", modifier = Modifier.padding(top = 6.dp))
         FiscalCard {
             val months = netWorth.takeLast(24)
@@ -233,6 +237,102 @@ private fun MonthColumn(
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value, style = MaterialTheme.typography.titleMedium, color = valueColor)
         Text(label, style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted)
+    }
+}
+
+@Composable
+private fun CashFlowSection(vm: AppViewModel) {
+    val cashFlow by vm.cashFlow.collectAsState()
+    if (cashFlow.size < 2) return
+    val months = cashFlow.takeLast(12)
+    val totalIncome = months.sumOf { it.income }
+    val totalSpend = months.sumOf { it.spending }
+    val savingsRate = if (totalIncome > 0.005) (1.0 - totalSpend / totalIncome) else 0.0
+
+    Eyebrow("Cash flow", modifier = Modifier.padding(top = 6.dp))
+    FiscalCard {
+        Row {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "${(savingsRate * 100).toInt()}% kept",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (savingsRate >= 0.2) Fiscal.Accent else if (savingsRate >= 0.0) Fiscal.Amber else Fiscal.Coral,
+                )
+                Text(
+                    "of take-home after spending, last ${months.size} months",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Fiscal.TextMuted,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    "${compactCurrency(totalIncome - totalSpend)} free",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Fiscal.TextPrimary,
+                )
+                Text(
+                    "≈ ${compactCurrency((totalIncome - totalSpend) / months.size)}/mo for debt & investing",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Fiscal.TextMuted,
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        com.financedashboard.app.ui.charts.PairedBarChart(
+            labels = months.map { it.month.format(monthFmt) },
+            seriesA = Series("Take-home", months.map { it.income }, Fiscal.Accent),
+            seriesB = Series("Spending", months.map { it.spending }, Fiscal.Coral),
+        )
+    }
+}
+
+@Composable
+private fun MilestonesSection(vm: AppViewModel) {
+    val plan by vm.debtPlan.collectAsState()
+    val ef by vm.emergencyFund.collectAsState()
+    val band by vm.investmentBand.collectAsState()
+    val redirect by vm.redirectInfo.collectAsState()
+
+    data class Milestone(val month: YearMonth, val label: String, val color: androidx.compose.ui.graphics.Color)
+
+    val now = YearMonth.now()
+    val startYear = java.time.LocalDate.now().year
+    val milestones = buildList {
+        plan?.ef?.efFundedMonth?.let {
+            if (it >= now) add(Milestone(it, "Emergency fund fully funded", Fiscal.Accent))
+        } ?: ef?.monthsToTarget?.takeIf { it > 0 }?.let {
+            add(Milestone(now.plusMonths(it.toLong()), "Emergency fund fully funded", Fiscal.Accent))
+        }
+        plan?.plan?.debts?.forEach { d ->
+            d.payoffMonth?.let { add(Milestone(it, "${d.debt.name.take(24)} paid off", Fiscal.Coral)) }
+        }
+        band?.expected?.let { proj ->
+            for (target in listOf(250_000.0, 500_000.0, 1_000_000.0)) {
+                com.financedashboard.core.engine.InvestmentEngine.milestoneYear(proj, target)?.let { y ->
+                    add(Milestone(YearMonth.of(startYear + y, 12), "Investments cross ${compactCurrency(target)}", Fiscal.Sky))
+                }
+            }
+        }
+        redirect?.let {
+            add(Milestone(now.plusMonths(it.fromMonth.toLong()), "${fullCurrency(it.amount)}/mo debt budget redirects to investing", Fiscal.Sky))
+        }
+    }.filter { it.month >= now }.sortedBy { it.month }.take(6)
+
+    if (milestones.isEmpty()) return
+    Eyebrow("Milestones ahead", modifier = Modifier.padding(top = 6.dp))
+    FiscalCard {
+        milestones.forEachIndexed { i, m ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 5.dp)) {
+                Box(Modifier.size(10.dp).background(m.color, CircleShape))
+                Spacer(Modifier.width(10.dp))
+                Text(m.label, style = MaterialTheme.typography.bodySmall, color = Fiscal.TextPrimary, modifier = Modifier.weight(1f))
+                Text(
+                    m.month.format(payoffFmt),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Fiscal.TextSecondary,
+                )
+            }
+        }
     }
 }
 

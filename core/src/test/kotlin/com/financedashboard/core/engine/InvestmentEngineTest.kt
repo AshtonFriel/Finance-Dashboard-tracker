@@ -55,6 +55,32 @@ class InvestmentEngineTest {
     }
 
     @Test
+    fun `redirect from month zero equals higher flat contribution`() {
+        val redirected = InvestmentEngine.project(
+            10_000.0, 500.0, 7.0, 10, 0.0,
+            redirectFromMonth = 0, redirectAmount = 300.0,
+        )
+        val flat = InvestmentEngine.project(10_000.0, 800.0, 7.0, 10, 0.0)
+        assertEquals(flat.years.last().endBalanceNominal, redirected.years.last().endBalanceNominal, 0.01)
+    }
+
+    @Test
+    fun `later redirect grows less but still more than none`() {
+        val none = InvestmentEngine.project(10_000.0, 500.0, 7.0, 20, 0.0)
+        val early = InvestmentEngine.project(10_000.0, 500.0, 7.0, 20, 0.0, redirectFromMonth = 24, redirectAmount = 1_000.0)
+        val late = InvestmentEngine.project(10_000.0, 500.0, 7.0, 20, 0.0, redirectFromMonth = 120, redirectAmount = 1_000.0)
+        assertTrue(early.years.last().endBalanceNominal > late.years.last().endBalanceNominal)
+        assertTrue(late.years.last().endBalanceNominal > none.years.last().endBalanceNominal)
+    }
+
+    @Test
+    fun `redirect beyond horizon changes nothing`() {
+        val none = InvestmentEngine.project(10_000.0, 500.0, 7.0, 5, 0.0)
+        val beyond = InvestmentEngine.project(10_000.0, 500.0, 7.0, 5, 0.0, redirectFromMonth = 120, redirectAmount = 1_000.0)
+        assertEquals(none.years.last().endBalanceNominal, beyond.years.last().endBalanceNominal, 0.01)
+    }
+
+    @Test
     fun `milestone year found or null`() {
         val p = InvestmentEngine.project(50_000.0, 1_000.0, 7.0, 30, 0.0)
         val yr = InvestmentEngine.milestoneYear(p, 250_000.0)

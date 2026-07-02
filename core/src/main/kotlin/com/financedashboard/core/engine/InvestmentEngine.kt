@@ -31,20 +31,25 @@ object InvestmentEngine {
         annualReturnPct: Double,
         years: Int,
         inflationPct: Double,
+        /** Extra monthly contribution that begins at this month index (0-based from now), e.g. a freed debt budget. */
+        redirectFromMonth: Int? = null,
+        redirectAmount: Double = 0.0,
     ): Projection {
         val r = annualReturnPct / 100.0 / 12.0
         val rows = mutableListOf<YearRow>()
         var balance = principal
-        var totalContrib = 0.0
+        var month = 0
         for (y in 1..years) {
             val startBalance = balance
             var yearContrib = 0.0
             repeat(12) {
                 balance *= (1.0 + r)
-                balance += monthlyContribution
-                yearContrib += monthlyContribution
+                var contrib = monthlyContribution
+                if (redirectFromMonth != null && month >= redirectFromMonth) contrib += redirectAmount
+                balance += contrib
+                yearContrib += contrib
+                month++
             }
-            totalContrib += yearContrib
             val deflator = (1.0 + inflationPct / 100.0).pow(y)
             rows.add(
                 YearRow(
@@ -74,10 +79,12 @@ object InvestmentEngine {
         pessimisticPct: Double = 3.0,
         expectedPct: Double = 7.0,
         optimisticPct: Double = 10.0,
+        redirectFromMonth: Int? = null,
+        redirectAmount: Double = 0.0,
     ): ScenarioBand = ScenarioBand(
-        pessimistic = project(principal, monthlyContribution, pessimisticPct, years, inflationPct),
-        expected = project(principal, monthlyContribution, expectedPct, years, inflationPct),
-        optimistic = project(principal, monthlyContribution, optimisticPct, years, inflationPct),
+        pessimistic = project(principal, monthlyContribution, pessimisticPct, years, inflationPct, redirectFromMonth, redirectAmount),
+        expected = project(principal, monthlyContribution, expectedPct, years, inflationPct, redirectFromMonth, redirectAmount),
+        optimistic = project(principal, monthlyContribution, optimisticPct, years, inflationPct, redirectFromMonth, redirectAmount),
     )
 
     /** First year index (1-based) at which the expected nominal balance crosses [target], or null. */

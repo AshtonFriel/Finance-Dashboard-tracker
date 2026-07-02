@@ -441,6 +441,120 @@ fun DonutChart(
     }
 }
 
+/**
+ * Paired bars per period (e.g. income vs spending by month) with rounded tops,
+ * a 2dp gap between pair members, and a scrub tooltip.
+ */
+@Composable
+fun PairedBarChart(
+    labels: List<String>,
+    seriesA: Series,
+    seriesB: Series,
+    modifier: Modifier = Modifier,
+    yFormatter: (Double) -> String = { compactCurrency(it) },
+) {
+    val chart = LocalChartColors.current
+    val textMeasurer = rememberTextMeasurer()
+    var scrubIndex by remember { mutableStateOf<Int?>(null) }
+    val n = minOf(labels.size, seriesA.values.size, seriesB.values.size)
+    if (n == 0) return
+    val yMax = (seriesA.values.take(n) + seriesB.values.take(n)).max().coerceAtLeast(1e-9)
+
+    Column(modifier = modifier) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(180.dp)
+                .pointerInput(n) {
+                    detectDragGestures(
+                        onDragEnd = { scrubIndex = null },
+                        onDragCancel = { scrubIndex = null },
+                    ) { change, _ ->
+                        scrubIndex = ((change.position.x / size.width) * n).toInt().coerceIn(0, n - 1)
+                    }
+                }
+                .pointerInput(n) {
+                    detectTapGestures(onTap = { pos ->
+                        val idx = ((pos.x / size.width) * n).toInt().coerceIn(0, n - 1)
+                        scrubIndex = if (scrubIndex == idx) null else idx
+                    })
+                }
+        ) {
+            Canvas(Modifier.fillMaxSize()) {
+                val plotH = size.height - 18.dp.toPx()
+                for (t in niceTicks(0.0, yMax)) {
+                    val y = (plotH - t / yMax * plotH).toFloat()
+                    drawLine(chart.gridline, Offset(0f, y), Offset(size.width, y), 1f)
+                    drawText(
+                        textMeasurer, yFormatter(t),
+                        topLeft = Offset(4.dp.toPx(), y - 14.sp.toPx()),
+                        style = TextStyle(color = chart.mutedInk, fontSize = 10.sp),
+                    )
+                }
+                val slot = size.width / n
+                val gap = 2.dp.toPx()
+                val barW = ((slot - 3 * gap) / 2).coerceAtLeast(2f)
+                fun bar(i: Int, v: Double, offsetInSlot: Float, color: Color) {
+                    val h = (v / yMax * plotH).toFloat()
+                    if (h <= 0f) return
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(i * slot + offsetInSlot, plotH - h),
+                        size = androidx.compose.ui.geometry.Size(barW, h),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW / 2, barW / 2),
+                    )
+                }
+                for (i in 0 until n) {
+                    bar(i, seriesA.values[i], gap, seriesA.color)
+                    bar(i, seriesB.values[i], gap * 2 + barW, seriesB.color)
+                }
+                drawLine(chart.baseline, Offset(0f, plotH), Offset(size.width, plotH), 1.5f)
+                drawText(
+                    textMeasurer, labels.first(),
+                    topLeft = Offset(0f, plotH + 4.dp.toPx()),
+                    style = TextStyle(color = chart.mutedInk, fontSize = 10.sp),
+                )
+                val lastLabel = labels[n - 1]
+                val measured = textMeasurer.measure(lastLabel, TextStyle(fontSize = 10.sp))
+                drawText(
+                    textMeasurer, lastLabel,
+                    topLeft = Offset(size.width - measured.size.width, plotH + 4.dp.toPx()),
+                    style = TextStyle(color = chart.mutedInk, fontSize = 10.sp),
+                )
+                scrubIndex?.let { i ->
+                    drawLine(chart.mutedInk, Offset(i * slot + slot / 2, 0f), Offset(i * slot + slot / 2, plotH), 1.5f)
+                }
+            }
+            scrubIndex?.let { i ->
+                Surface(
+                    modifier = Modifier
+                        .align(if (i < n / 2) Alignment.TopEnd else Alignment.TopStart)
+                        .padding(8.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    tonalElevation = 4.dp,
+                    shadowElevation = 4.dp,
+                ) {
+                    Column(Modifier.padding(10.dp)) {
+                        Text(labels[i], style = MaterialTheme.typography.labelMedium, color = chart.secondaryInk)
+                        for (s in listOf(seriesA, seriesB)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(8.dp).background(s.color, CircleShape))
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "${s.label}: ${yFormatter(s.values[i])}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = chart.primaryInk,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ChartLegend(listOf(seriesA.label to seriesA.color, seriesB.label to seriesB.color))
+    }
+}
+
 @Composable
 fun Sparkline(values: List<Double>, color: Color, modifier: Modifier = Modifier) {
     if (values.size < 2) { Box(modifier) ; return }

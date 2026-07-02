@@ -122,13 +122,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         val active = extraction.active.map { input(it, null, defaultInclude = true) }
         val review = extraction.needsReview.map { r ->
-            val note = when (r.reason) {
+            when (r.reason) {
                 com.financedashboard.core.classify.DebtExtractor.ReviewReason.SUSPECTED_DUPLICATE ->
-                    "Suspected duplicate of ${r.duplicateOf}"
+                    // Never double-count: duplicates stay out unless the user opts in.
+                    input(r.candidate, "Suspected duplicate of ${r.duplicateOf}", defaultInclude = false)
                 com.financedashboard.core.classify.DebtExtractor.ReviewReason.CARD_STATEMENT_BALANCE ->
-                    "Card statement balance — include only if it revolves"
+                    // Real balances, so counted by default — one tap to exclude if paid in full monthly.
+                    input(r.candidate, "Card statement balance — exclude if paid in full monthly", defaultInclude = true)
             }
-            input(r.candidate, note, defaultInclude = false)
         }
         (active + review).sortedWith(compareBy({ it.reviewNote != null }, { -it.balance }))
     }.asState(emptyList())

@@ -96,13 +96,13 @@ fun DebtsScreen(vm: AppViewModel) {
 
         val suspects = debts.filter { it.reviewNote != null }
         if (suspects.isNotEmpty()) {
-            SectionTitle("Needs review — excluded until you confirm")
+            SectionTitle("Needs review")
             for (d in suspects) {
                 DebtCard(d, chart.seriesYellow) { editing = d }
             }
             Text(
-                "Suspected duplicates and card statement balances are never auto-counted. " +
-                    "Tap Edit and set include = 1 if one is a real, separate debt.",
+                "Suspected duplicates are excluded by default so nothing is double-counted; " +
+                    "card balances are included by default. Tap Edit to change (include = 1/0).",
                 style = MaterialTheme.typography.labelSmall,
                 color = chart.mutedInk,
             )

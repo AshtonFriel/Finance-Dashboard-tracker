@@ -241,6 +241,7 @@ private fun EmergencyFundSection(vm: AppViewModel) {
     val ef by vm.emergencyFund.collectAsState()
     val efMonths by vm.efTargetMonths.collectAsState()
     val saving by vm.efMonthlySaving.collectAsState()
+    val income by vm.avgMonthlyIncome.collectAsState()
     val state = ef ?: return
 
     Eyebrow("Emergency fund", modifier = Modifier.padding(top = 6.dp))
@@ -257,9 +258,15 @@ private fun EmergencyFundSection(vm: AppViewModel) {
                     },
                 )
                 Text(
-                    "${fullCurrency(state.liquidCash)} cash · spending ~${fullCurrency(state.avgMonthlyExpenses)}/mo",
+                    "${fullCurrency(state.liquidCash)} cash on hand",
                     style = MaterialTheme.typography.bodySmall,
                     color = Fiscal.TextSecondary,
+                )
+                Text(
+                    (if (income > 0.005) "you earn ~${fullCurrency(income)}/mo · " else "") +
+                        "you spend ~${fullCurrency(state.avgMonthlyExpenses)}/mo",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Fiscal.TextMuted,
                 )
             }
             Text(

@@ -152,6 +152,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val avgMonthlyExpenses = repo.monthlyExpenses(6).map { months ->
         com.financedashboard.core.engine.EmergencyFundEngine.averageMonthlyExpenses(months.map { it.second })
     }.asState(0.0)
+    val avgMonthlyIncome = repo.avgMonthlyPaychecks.asState(0.0)
     val efTargetMonths = settings.efTargetMonths.asState(6)
     val efMonthlySaving = settings.efMonthlySaving.asState(500.0)
     val efFirstInPayoff = settings.efFirstInPayoff.asState(false)

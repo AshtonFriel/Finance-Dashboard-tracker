@@ -120,6 +120,17 @@ class FinanceRepository(private val db: AppDatabase) {
             .mapValues { (_, list) -> -list.minOf { it.balance } }
     }
 
+    /** Average take-home from paycheck deposits over the trailing 6 full months. */
+    val avgMonthlyPaychecks: Flow<Double> =
+        db.transactionDao().incomeTransactions(IncomeAggregator.PAYCHECK_CATEGORIES.toList()).map { txs ->
+            val current = YearMonth.now()
+            val byMonth = txs.groupBy { YearMonth.from(LocalDate.ofEpochDay(it.epochDay)) }
+                .filterKeys { it < current }
+                .mapValues { (_, list) -> list.sumOf { it.amount } }
+                .toSortedMap().toList().takeLast(6)
+            if (byMonth.isEmpty()) 0.0 else byMonth.sumOf { it.second } / byMonth.size
+        }
+
     /** Latest positive balances across cash accounts — the emergency-fund base. */
     val liquidCash: Flow<Double> = accounts.map { accs ->
         accs.filter { it.type == AccountType.CASH }.sumOf { it.latestBalance.coerceAtLeast(0.0) }

@@ -41,6 +41,7 @@ fun InflationScreen(vm: AppViewModel) {
     val purchasingPower by vm.purchasingPower.collectAsState()
     val source by vm.incomeSource.collectAsState()
     val manualIncome by vm.manualIncome.collectAsState()
+    val avgMonthlyIncome by vm.avgMonthlyIncome.collectAsState()
     var showIncomeDialog by remember { mutableStateOf(false) }
 
     Column(
@@ -112,6 +113,15 @@ fun InflationScreen(vm: AppViewModel) {
                     // Pin y-min just below the smallest value to amplify the divergence.
                     yMinOverride = minOf(nominal.min(), real.min()) * 0.97,
                 )
+                if (avgMonthlyIncome > 0.005) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Recent take-home: ~${fullCurrency(avgMonthlyIncome)}/month averaged over the " +
+                            "last 6 full months of paycheck deposits.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Fiscal.TextSecondary,
+                    )
+                }
             }
 
             // Purchasing power lost.

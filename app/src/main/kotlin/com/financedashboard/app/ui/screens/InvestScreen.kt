@@ -25,6 +25,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -164,6 +167,31 @@ fun InvestScreen(vm: AppViewModel) {
                 }
             }
 
+            // Sequence-of-returns stress test.
+            val stressOn by vm.stressEnabled.collectAsState()
+            val stressRate by vm.stressRatePct.collectAsState()
+            FiscalCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = stressOn, onCheckedChange = { vm.setStressEnabled(it) })
+                    Column(Modifier.padding(start = 10.dp)) {
+                        Text("Bad-decade stress test", style = MaterialTheme.typography.labelLarge, color = Fiscal.TextPrimary)
+                        Text(
+                            if (stressOn) "First 10 years return ${"%.1f".format(stressRate)}% instead of the scenario rate"
+                            else "See what a weak first decade does to the plan",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (stressOn) Fiscal.Amber else Fiscal.TextMuted,
+                        )
+                    }
+                }
+                if (stressOn) {
+                    Slider(
+                        value = stressRate.toFloat(),
+                        onValueChange = { vm.setStressRatePct((it * 2).toInt() / 2.0) },
+                        valueRange = -5f..6f,
+                    )
+                }
+            }
+
             // Horizon + real toggle.
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 for (y in listOf(5, 10, 20, 30)) {
@@ -189,26 +217,90 @@ fun InvestScreen(vm: AppViewModel) {
                 )
             }
 
-            // Retirement goal.
-            val nominalAtHorizon = bnd.expected.years.last().endBalanceNominal
-            val goalPct = (nominalAtHorizon / RETIREMENT_GOAL).coerceIn(0.0, 1.0)
-            FiscalCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Retirement goal", style = MaterialTheme.typography.titleSmall, color = Fiscal.TextPrimary, modifier = Modifier.weight(1f))
-                    Text("$1.0M", style = MaterialTheme.typography.titleMedium, color = Fiscal.TextPrimary)
+            // Goals: multiple, user-defined; a $1M retirement goal is seeded by default.
+            val goalProjections by vm.goalProjections.collectAsState()
+            var showGoalDialog by remember { mutableStateOf(false) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Eyebrow("Goals", modifier = Modifier.weight(1f))
+                androidx.compose.material3.TextButton(onClick = { showGoalDialog = true }) { Text("Add goal") }
+            }
+            val effectiveGoals = goalProjections.ifEmpty {
+                // Default retirement goal until the user adds their own.
+                val nominalAtHorizon = bnd.expected.years.last().endBalanceNominal
+                listOf(
+                    AppViewModel.GoalUi(
+                        goal = com.financedashboard.app.data.SettingsStore.Goal("Retirement", RETIREMENT_GOAL, horizon),
+                        projectedNominal = nominalAtHorizon,
+                        progress = (nominalAtHorizon / RETIREMENT_GOAL).coerceIn(0.0, 1.0),
+                        reachedYear = InvestmentEngine.milestoneYear(bnd.expected, RETIREMENT_GOAL),
+                    )
+                )
+            }
+            for (g in effectiveGoals) {
+                FiscalCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(g.goal.name, style = MaterialTheme.typography.titleSmall, color = Fiscal.TextPrimary, modifier = Modifier.weight(1f))
+                        Text(compactCurrency(g.goal.target), style = MaterialTheme.typography.titleMedium, color = Fiscal.TextPrimary)
+                        if (goalProjections.isNotEmpty()) {
+                            androidx.compose.material3.TextButton(onClick = { vm.removeGoal(g.goal.name) }) {
+                                Text("✕", color = Fiscal.TextMuted)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    FiscalBar(progress = g.progress.toFloat(), height = 10.dp)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Projected ${compactCurrency(g.projectedNominal)} in ${g.goal.years}y — ${(g.progress * 100).toInt()}% of goal" +
+                            (g.reachedYear?.let { " · reached ${startYear + it}" } ?: ""),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Fiscal.TextSecondary,
+                    )
                 }
-                Spacer(Modifier.height(10.dp))
-                FiscalBar(progress = goalPct.toFloat(), height = 10.dp)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Projected to reach ${(nominalAtHorizon / RETIREMENT_GOAL * 100).toInt()}% of goal" +
-                        (InvestmentEngine.milestoneYear(bnd.expected, RETIREMENT_GOAL)?.let { " · $1M in ${startYear + it}" } ?: ""),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Fiscal.TextSecondary,
+            }
+            if (showGoalDialog) {
+                var goalName by remember { mutableStateOf("") }
+                var goalTarget by remember { mutableStateOf("") }
+                var goalYears by remember { mutableStateOf(horizon.toString()) }
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { showGoalDialog = false },
+                    title = { Text("Add goal") },
+                    text = {
+                        Column {
+                            androidx.compose.material3.OutlinedTextField(
+                                value = goalName, onValueChange = { goalName = it },
+                                label = { Text("Name (e.g. House down payment)") }, singleLine = true,
+                            )
+                            androidx.compose.material3.OutlinedTextField(
+                                value = goalTarget, onValueChange = { goalTarget = it },
+                                label = { Text("Target (\$)") }, singleLine = true,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                            androidx.compose.material3.OutlinedTextField(
+                                value = goalYears, onValueChange = { goalYears = it },
+                                label = { Text("Years from now") }, singleLine = true,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        androidx.compose.material3.TextButton(onClick = {
+                            val target = goalTarget.replace(",", "").replace("$", "").trim().toDoubleOrNull()
+                            val years = goalYears.trim().toIntOrNull()
+                            if (goalName.isNotBlank() && target != null && target > 0 && years != null && years in 1..60) {
+                                vm.addGoal(goalName.trim(), target, years)
+                                showGoalDialog = false
+                            }
+                        }) { Text("Save") }
+                    },
+                    dismissButton = {
+                        androidx.compose.material3.TextButton(onClick = { showGoalDialog = false }) { Text("Cancel") }
+                    },
                 )
             }
 
             // Where the money comes from.
+            val nominalAtHorizon = bnd.expected.years.last().endBalanceNominal
             val totalContrib = principal + bnd.expected.years.sumOf { it.contributions }
             val growth = (nominalAtHorizon - totalContrib).coerceAtLeast(0.0)
             val contribShare = (totalContrib / nominalAtHorizon).coerceIn(0.0, 1.0)
@@ -260,7 +352,26 @@ fun InvestScreen(vm: AppViewModel) {
             }
 
             // Year-by-year table.
-            Eyebrow("Year-by-year (expected ${expectedReturn}%)")
+            val exportContext = androidx.compose.ui.platform.LocalContext.current
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Eyebrow("Year-by-year (expected ${expectedReturn}%)", modifier = Modifier.weight(1f))
+                androidx.compose.material3.TextButton(onClick = {
+                    com.financedashboard.app.data.TableExporter.shareCsv(
+                        exportContext,
+                        "investment-projection.csv",
+                        header = listOf("Year", "Contributions", "Growth", "Nominal", "Real"),
+                        rows = bnd.expected.years.map {
+                            listOf(
+                                (startYear + it.yearIndex).toString(),
+                                "%.2f".format(it.contributions),
+                                "%.2f".format(it.growth),
+                                "%.2f".format(it.endBalanceNominal),
+                                "%.2f".format(it.endBalanceReal),
+                            )
+                        },
+                    )
+                }) { Text("Export CSV", color = Fiscal.Accent, style = MaterialTheme.typography.labelSmall) }
+            }
             FiscalCard {
                 val weights = listOf(0.7f, 1.1f, 1.1f, 1.2f, 1.2f)
                 TableRow(listOf("Year", "Contrib", "Growth", "Nominal", "Real"), weights, emphasize = true)
@@ -281,8 +392,13 @@ fun InvestScreen(vm: AppViewModel) {
                     )
                 }
             }
+            val hasCrypto by vm.hasCryptoSleeve.collectAsState()
             Text(
-                "Fixed-rate scenario models, not forecasts. Volatile assets (crypto) swing far wider.",
+                if (hasCrypto)
+                    "Fixed-rate scenario models, not forecasts. Your crypto holdings are modeled as their own " +
+                        "sleeve with a much wider band (±15% around the scenario rate) and receive no contributions."
+                else
+                    "Fixed-rate scenario models, not forecasts.",
                 style = MaterialTheme.typography.labelSmall,
                 color = Fiscal.TextMuted,
             )

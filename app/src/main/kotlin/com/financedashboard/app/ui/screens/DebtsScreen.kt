@@ -92,6 +92,23 @@ fun DebtsScreen(vm: AppViewModel) {
             return
         }
 
+        // Rates-confirmation banner: projections are only as good as the APRs.
+        val unconfirmed by vm.unconfirmedRates.collectAsState()
+        if (unconfirmed.isNotEmpty()) {
+            FiscalCard {
+                Text(
+                    "⚠ ${unconfirmed.size} ${if (unconfirmed.size == 1) "debt is" else "debts are"} using guessed rates",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Fiscal.Amber,
+                )
+                Text(
+                    "Payoff dates and interest are estimates until you tap each debt below and enter its real APR and payment.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Fiscal.TextSecondary,
+                )
+            }
+        }
+
         val included = debts.filter { it.includeInPlan }
         val totalRemaining = included.sumOf { it.balance }
         val totalOriginal = included.sumOf { it.originalBalance }
@@ -155,6 +172,70 @@ fun DebtsScreen(vm: AppViewModel) {
                 value = extra.toFloat(),
                 onValueChange = { vm.setExtraMonthly((it / 25).toInt() * 25.0) },
                 valueRange = 0f..2000f,
+            )
+            val growth by vm.extraGrowthPct.collectAsState()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Grows ${"%.1f".format(growth)}%/yr with raises",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Fiscal.TextMuted,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Slider(
+                value = growth.toFloat(),
+                onValueChange = { vm.setExtraGrowthPct((it * 2).toInt() / 2.0) },
+                valueRange = 0f..10f,
+            )
+        }
+
+        // One-time lump sums pinned to a month.
+        val lumps by vm.lumpSums.collectAsState()
+        var showLumpDialog by remember { mutableStateOf(false) }
+        FiscalCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Lump-sum payments", style = MaterialTheme.typography.labelLarge, color = Fiscal.TextPrimary, modifier = Modifier.weight(1f))
+                androidx.compose.material3.TextButton(onClick = { showLumpDialog = true }) { Text("Add") }
+            }
+            if (lumps.isEmpty()) {
+                Text(
+                    "Tax refund or bonus coming? Pin it to a month and see the payoff date move.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Fiscal.TextMuted,
+                )
+            }
+            for ((month, amount) in lumps.toSortedMap()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${month.format(monthFmt)} — ${fullCurrency(amount)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Fiscal.TextPrimary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    androidx.compose.material3.TextButton(onClick = { vm.removeLumpSum(month) }) {
+                        Text("Remove", color = Fiscal.Coral)
+                    }
+                }
+            }
+        }
+        if (showLumpDialog) {
+            val now = java.time.YearMonth.now()
+            NumberEntryDialog(
+                title = "Add lump-sum payment",
+                fields = listOf(
+                    "Year" to now.year.toString(),
+                    "Month (1-12)" to now.monthValue.toString(),
+                    "Amount (\$)" to "",
+                ),
+                onConfirm = { (year, month, amount) ->
+                    val m = month.toInt().coerceIn(1, 12)
+                    val y = year.toInt()
+                    if (y in now.year..now.year + 50 && amount > 0) {
+                        vm.addLumpSum(java.time.YearMonth.of(y, m), amount)
+                    }
+                    showLumpDialog = false
+                },
+                onDismiss = { showLumpDialog = false },
             )
         }
 
@@ -227,16 +308,43 @@ fun DebtsScreen(vm: AppViewModel) {
 
         // Debt list with focus badge and per-debt progress.
         Eyebrow("Your debts")
-        val focus = included.filter { it.balance > 0.005 }.let { open ->
-            if (strategy == PayoffStrategy.SNOWBALL) open.minByOrNull { it.balance }
-            else open.maxByOrNull { it.aprPct }
+        val order by vm.customOrder.collectAsState()
+        val simulated by vm.simulatePaidOff.collectAsState()
+        val effectiveRank = order.withIndex().associate { (i, n) -> n to i }
+        val listed = if (strategy == PayoffStrategy.CUSTOM) {
+            included.sortedWith(compareBy({ effectiveRank[it.accountName] ?: Int.MAX_VALUE }, { -it.aprPct }))
+        } else included
+        val focus = listed.filter { it.balance > 0.005 && it.accountName !in simulated }.let { open ->
+            when (strategy) {
+                PayoffStrategy.SNOWBALL -> open.minByOrNull { it.balance }
+                PayoffStrategy.CUSTOM -> open.firstOrNull()
+                else -> open.maxByOrNull { it.aprPct }
+            }
         }
-        included.forEachIndexed { i, d ->
+        listed.forEachIndexed { i, d ->
             DebtRow(
                 d = d,
                 color = chart.categorical[i % chart.categorical.size],
                 focused = strategy != PayoffStrategy.PRO_RATA && d.accountName == focus?.accountName,
                 onEdit = { editing = d },
+                simulatedPaidOff = d.accountName in simulated,
+                onToggleSimulate = { vm.toggleSimulatePaidOff(d.accountName) },
+                onMove = if (strategy == PayoffStrategy.CUSTOM) { up -> vm.moveInCustomOrder(d.accountName, up) } else null,
+            )
+        }
+        if (simulated.isNotEmpty()) {
+            Text(
+                "What-if active: ${simulated.joinToString { it.take(20) }} treated as paid off today; " +
+                    "freed minimums roll into the extra budget. This is a simulation — tap again to undo.",
+                style = MaterialTheme.typography.labelSmall,
+                color = Fiscal.Amber,
+            )
+        }
+        if (strategy == PayoffStrategy.CUSTOM) {
+            Text(
+                "Custom order: extra goes to the top debt first — use the arrows to reorder.",
+                style = MaterialTheme.typography.labelSmall,
+                color = Fiscal.TextMuted,
             )
         }
         Text(
@@ -363,7 +471,27 @@ fun DebtsScreen(vm: AppViewModel) {
                 }
             }
             activePlan.debts.firstOrNull { it.debt.name == scheduleFor }?.let { dr ->
+                val context = androidx.compose.ui.platform.LocalContext.current
                 FiscalCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(Modifier.weight(1f))
+                        androidx.compose.material3.TextButton(onClick = {
+                            com.financedashboard.app.data.TableExporter.shareCsv(
+                                context,
+                                "amortization-${dr.debt.name.filter { it.isLetterOrDigit() }.take(24)}.csv",
+                                header = listOf("Month", "Payment", "Principal", "Interest", "Balance"),
+                                rows = dr.schedule.map {
+                                    listOf(
+                                        it.month.toString(),
+                                        "%.2f".format(it.payment),
+                                        "%.2f".format(it.principal),
+                                        "%.2f".format(it.interest),
+                                        "%.2f".format(it.remainingBalance),
+                                    )
+                                },
+                            )
+                        }) { Text("Export CSV", color = Fiscal.Accent, style = MaterialTheme.typography.labelSmall) }
+                    }
                     val weights = listOf(1.1f, 1f, 0.9f, 0.9f, 1.1f)
                     TableRow(listOf("Month", "Payment", "Principal", "Interest", "Balance"), weights, emphasize = true)
                     HorizontalDivider(color = Fiscal.Hairline)
@@ -425,7 +553,15 @@ private fun HeroTile(modifier: Modifier, label: String, value: String, valueColo
 }
 
 @Composable
-private fun DebtRow(d: DebtInput, color: androidx.compose.ui.graphics.Color, focused: Boolean, onEdit: () -> Unit) {
+private fun DebtRow(
+    d: DebtInput,
+    color: androidx.compose.ui.graphics.Color,
+    focused: Boolean,
+    onEdit: () -> Unit,
+    simulatedPaidOff: Boolean = false,
+    onToggleSimulate: (() -> Unit)? = null,
+    onMove: ((up: Boolean) -> Unit)? = null,
+) {
     FiscalCard(onClick = onEdit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(10.dp).background(color, CircleShape))
@@ -433,7 +569,7 @@ private fun DebtRow(d: DebtInput, color: androidx.compose.ui.graphics.Color, foc
             Text(
                 d.accountName,
                 style = MaterialTheme.typography.titleSmall,
-                color = Fiscal.TextPrimary,
+                color = if (simulatedPaidOff) Fiscal.TextMuted else Fiscal.TextPrimary,
                 modifier = Modifier.weight(1f, fill = false),
             )
             if (focused) {
@@ -473,6 +609,24 @@ private fun DebtRow(d: DebtInput, color: androidx.compose.ui.graphics.Color, foc
         d.reviewNote?.let {
             Spacer(Modifier.height(4.dp))
             Text(it, style = MaterialTheme.typography.labelSmall, color = Fiscal.Amber)
+        }
+        if (onToggleSimulate != null || onMove != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                onMove?.let { move ->
+                    androidx.compose.material3.TextButton(onClick = { move(true) }) { Text("↑") }
+                    androidx.compose.material3.TextButton(onClick = { move(false) }) { Text("↓") }
+                }
+                Spacer(Modifier.weight(1f))
+                onToggleSimulate?.let { toggle ->
+                    androidx.compose.material3.TextButton(onClick = toggle) {
+                        Text(
+                            if (simulatedPaidOff) "Undo what-if" else "What if paid off today?",
+                            color = if (simulatedPaidOff) Fiscal.Amber else Fiscal.Accent,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+            }
         }
     }
 }

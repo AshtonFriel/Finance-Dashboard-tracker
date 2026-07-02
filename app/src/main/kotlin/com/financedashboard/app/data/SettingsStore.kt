@@ -30,7 +30,21 @@ class SettingsStore(private val context: Context) {
         val assumedInflationPct = doublePreferencesKey("invest_assumed_inflation")
         val showReal = booleanPreferencesKey("invest_show_real")
         val redirectDebtBudget = booleanPreferencesKey("invest_redirect_debt_budget")
+        val extraGrowthPct = doublePreferencesKey("debt_extra_growth_pct")
+        val lumpSums = stringPreferencesKey("debt_lump_sums")
+        val customOrder = stringPreferencesKey("debt_custom_order")
+        val stressEnabled = booleanPreferencesKey("invest_stress_enabled")
+        val stressRatePct = doublePreferencesKey("invest_stress_rate_pct")
+        val goals = stringPreferencesKey("invest_goals")
+        val categoryInflation = stringPreferencesKey("inflation_category_rates")
+        val futureRaisePct = doublePreferencesKey("inflation_future_raise_pct")
+        val futureInflationPct = doublePreferencesKey("inflation_future_cpi_pct")
+        val biometricLock = booleanPreferencesKey("security_biometric_lock")
     }
+
+    // Record separator / field separator for serialized lists (never appear in user text).
+    private val RS = '\u001E'
+    private val FS = '\u001F'
 
     val efTargetMonths: Flow<Int> = context.dataStore.data.map { it[Keys.efTargetMonths] ?: 6 }
     val efMonthlySaving: Flow<Double> = context.dataStore.data.map { it[Keys.efMonthlySaving] ?: 500.0 }
@@ -55,4 +69,75 @@ class SettingsStore(private val context: Context) {
     suspend fun setAssumedInflationPct(v: Double) = context.dataStore.edit { it[Keys.assumedInflationPct] = v }
     suspend fun setShowReal(v: Boolean) = context.dataStore.edit { it[Keys.showReal] = v }
     suspend fun setRedirectDebtBudget(v: Boolean) = context.dataStore.edit { it[Keys.redirectDebtBudget] = v }
+
+    // ---- Extra growth, lump sums, custom order ----
+    val extraGrowthPct: Flow<Double> = context.dataStore.data.map { it[Keys.extraGrowthPct] ?: 0.0 }
+    suspend fun setExtraGrowthPct(v: Double) = context.dataStore.edit { it[Keys.extraGrowthPct] = v }
+
+    /** Map of YearMonth -> amount. */
+    val lumpSums: Flow<Map<java.time.YearMonth, Double>> = context.dataStore.data.map { prefs ->
+        (prefs[Keys.lumpSums] ?: "").split(RS).filter { it.isNotBlank() }.mapNotNull { rec ->
+            val parts = rec.split(FS)
+            val month = runCatching { java.time.YearMonth.parse(parts[0]) }.getOrNull()
+            val amount = parts.getOrNull(1)?.toDoubleOrNull()
+            if (month != null && amount != null) month to amount else null
+        }.toMap()
+    }
+
+    suspend fun setLumpSums(v: Map<java.time.YearMonth, Double>) = context.dataStore.edit { prefs ->
+        prefs[Keys.lumpSums] = v.entries.joinToString(RS.toString()) { "${it.key}$FS${it.value}" }
+    }
+
+    val customOrder: Flow<List<String>> = context.dataStore.data.map { prefs ->
+        (prefs[Keys.customOrder] ?: "").split(RS).filter { it.isNotBlank() }
+    }
+
+    suspend fun setCustomOrder(v: List<String>) = context.dataStore.edit { prefs ->
+        prefs[Keys.customOrder] = v.joinToString(RS.toString())
+    }
+
+    // ---- Stress test ----
+    val stressEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.stressEnabled] ?: false }
+    val stressRatePct: Flow<Double> = context.dataStore.data.map { it[Keys.stressRatePct] ?: 2.0 }
+    suspend fun setStressEnabled(v: Boolean) = context.dataStore.edit { it[Keys.stressEnabled] = v }
+    suspend fun setStressRatePct(v: Double) = context.dataStore.edit { it[Keys.stressRatePct] = v }
+
+    // ---- Investment goals ----
+    data class Goal(val name: String, val target: Double, val years: Int)
+
+    val goals: Flow<List<Goal>> = context.dataStore.data.map { prefs ->
+        (prefs[Keys.goals] ?: "").split(RS).filter { it.isNotBlank() }.mapNotNull { rec ->
+            val p = rec.split(FS)
+            val target = p.getOrNull(1)?.toDoubleOrNull()
+            val years = p.getOrNull(2)?.toIntOrNull()
+            if (p[0].isNotBlank() && target != null && years != null) Goal(p[0], target, years) else null
+        }
+    }
+
+    suspend fun setGoals(v: List<Goal>) = context.dataStore.edit { prefs ->
+        prefs[Keys.goals] = v.joinToString(RS.toString()) { "${it.name}$FS${it.target}$FS${it.years}" }
+    }
+
+    // ---- Personal (category) inflation rates ----
+    val categoryInflation: Flow<Map<String, Double>> = context.dataStore.data.map { prefs ->
+        (prefs[Keys.categoryInflation] ?: "").split(RS).filter { it.isNotBlank() }.mapNotNull { rec ->
+            val p = rec.split(FS)
+            val rate = p.getOrNull(1)?.toDoubleOrNull()
+            if (p[0].isNotBlank() && rate != null) p[0] to rate else null
+        }.toMap()
+    }
+
+    suspend fun setCategoryInflation(v: Map<String, Double>) = context.dataStore.edit { prefs ->
+        prefs[Keys.categoryInflation] = v.entries.joinToString(RS.toString()) { "${it.key}$FS${it.value}" }
+    }
+
+    // ---- Forward-looking projection ----
+    val futureRaisePct: Flow<Double> = context.dataStore.data.map { it[Keys.futureRaisePct] ?: 3.0 }
+    val futureInflationPct: Flow<Double> = context.dataStore.data.map { it[Keys.futureInflationPct] ?: 2.7 }
+    suspend fun setFutureRaisePct(v: Double) = context.dataStore.edit { it[Keys.futureRaisePct] = v }
+    suspend fun setFutureInflationPct(v: Double) = context.dataStore.edit { it[Keys.futureInflationPct] = v }
+
+    // ---- Security ----
+    val biometricLock: Flow<Boolean> = context.dataStore.data.map { it[Keys.biometricLock] ?: false }
+    suspend fun setBiometricLock(v: Boolean) = context.dataStore.edit { it[Keys.biometricLock] = v }
 }

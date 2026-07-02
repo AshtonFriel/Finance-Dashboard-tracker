@@ -58,7 +58,12 @@ class FinanceRepository(private val db: AppDatabase) {
             val perAccountMonth = balances.groupBy { it.accountName to YearMonth.from(LocalDate.ofEpochDay(it.epochDay)) }
                 .mapValues { (_, rows) -> rows.maxBy { it.epochDay }.balance }
 
-            val months = perAccountMonth.keys.map { it.second }.distinct().sorted()
+            // Continuous month grid so sparse snapshots don't distort the x-axis.
+            val allMonths = perAccountMonth.keys.map { it.second }
+            val firstMonth = allMonths.min()
+            val lastMonth = allMonths.max()
+            val months = generateSequence(firstMonth) { it.plusMonths(1) }
+                .takeWhile { it <= lastMonth }.toList()
             val accountNames = perAccountMonth.keys.map { it.first }.distinct()
             val lastKnown = mutableMapOf<String, Double>()
             months.map { m ->

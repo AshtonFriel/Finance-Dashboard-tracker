@@ -12,6 +12,7 @@ import com.financedashboard.core.csv.TransactionsCsvParser
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 /**
@@ -28,6 +29,58 @@ class CsvImporter(private val context: Context, private val db: AppDatabase) {
         data class Transactions(val rows: Int) : Result()
         data class Error(val message: String) : Result()
     }
+
+    /** Parse-only summary shown before a replace-all import is committed. */
+    data class Preview(
+        val kind: Kind,
+        val rows: Int,
+        val accounts: Int,
+        val from: java.time.LocalDate?,
+        val to: java.time.LocalDate?,
+        val error: String? = null,
+    ) {
+        enum class Kind { BALANCES, TRANSACTIONS }
+    }
+
+    suspend fun previewBalances(uri: Uri): Preview = withContext(Dispatchers.IO) {
+        try {
+            val records = context.contentResolver.openInputStream(uri)?.use { stream ->
+                BalancesCsvParser().parse(BufferedReader(InputStreamReader(stream)))
+            } ?: return@withContext Preview(Preview.Kind.BALANCES, 0, 0, null, null, "Could not open file")
+            if (records.isEmpty()) return@withContext Preview(Preview.Kind.BALANCES, 0, 0, null, null, "No balance rows found — is this a Balances export?")
+            Preview(
+                Preview.Kind.BALANCES, records.size, records.distinctBy { it.account }.size,
+                records.minOf { it.date }, records.maxOf { it.date },
+            )
+        } catch (e: Exception) {
+            Preview(Preview.Kind.BALANCES, 0, 0, null, null, e.message ?: "Parse failed")
+        }
+    }
+
+    suspend fun previewTransactions(uri: Uri): Preview = withContext(Dispatchers.IO) {
+        try {
+            val records = context.contentResolver.openInputStream(uri)?.use { stream ->
+                TransactionsCsvParser().parse(BufferedReader(InputStreamReader(stream)))
+            } ?: return@withContext Preview(Preview.Kind.TRANSACTIONS, 0, 0, null, null, "Could not open file")
+            if (records.isEmpty()) return@withContext Preview(Preview.Kind.TRANSACTIONS, 0, 0, null, null, "No transaction rows found — is this a Transactions export?")
+            Preview(
+                Preview.Kind.TRANSACTIONS, records.size, records.distinctBy { it.account }.size,
+                records.minOf { it.date }, records.maxOf { it.date },
+            )
+        } catch (e: Exception) {
+            Preview(Preview.Kind.TRANSACTIONS, 0, 0, null, null, e.message ?: "Parse failed")
+        }
+    }
+
+    /** Current dataset shape, for the "you are replacing X" side of the preview. */
+    suspend fun currentBalancesSummary(): Pair<Int, Pair<java.time.LocalDate, java.time.LocalDate>?> =
+        withContext(Dispatchers.IO) {
+            val rows = db.balanceDao().all().first()
+            rows.size to if (rows.isEmpty()) null else {
+                java.time.LocalDate.ofEpochDay(rows.minOf { it.epochDay }) to
+                    java.time.LocalDate.ofEpochDay(rows.maxOf { it.epochDay })
+            }
+        }
 
     suspend fun importBalances(uri: Uri): Result = withContext(Dispatchers.IO) {
         try {

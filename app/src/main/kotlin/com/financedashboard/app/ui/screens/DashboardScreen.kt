@@ -81,17 +81,10 @@ fun DashboardScreen(vm: AppViewModel, navController: NavHostController) {
             }
         }
 
-        if (netWorth.isEmpty()) {
-            FiscalCard {
-                Text("No data yet", style = MaterialTheme.typography.titleMedium, color = Fiscal.TextPrimary)
-                Text(
-                    "Import your Balances and Transactions CSV exports from More → Settings to get started. " +
-                        "All data stays on this device.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Fiscal.TextSecondary,
-                )
-            }
-            return
+        val txCount by vm.transactionCount.collectAsState()
+        if (netWorth.isEmpty() || txCount == 0) {
+            OnboardingCard(vm, navController, hasBalances = netWorth.isNotEmpty(), hasTransactions = txCount > 0)
+            if (netWorth.isEmpty()) return
         }
 
         // Hero: debt-free by.
@@ -203,6 +196,117 @@ private fun greeting(): String = when (LocalTime.now().hour) {
     in 5..11 -> "Good morning,"
     in 12..17 -> "Good afternoon,"
     else -> "Good evening,"
+}
+
+@Composable
+private fun OnboardingCard(
+    vm: AppViewModel,
+    navController: NavHostController,
+    hasBalances: Boolean,
+    hasTransactions: Boolean,
+) {
+    val csvTypes = arrayOf("text/csv", "text/comma-separated-values", "application/csv", "text/plain")
+    val balancesPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { vm.requestImportBalances(it) } }
+    val transactionsPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { vm.requestImportTransactions(it) } }
+    val status by vm.importStatus.collectAsState()
+
+    HeroCard {
+        Eyebrow("Get set up", color = Fiscal.Accent)
+        Spacer(Modifier.height(8.dp))
+        OnboardingStep(
+            done = hasBalances,
+            number = 1,
+            title = "Import your Balances CSV",
+            subtitle = "Accounts, debts, and net worth come from this file",
+            actionLabel = if (hasBalances) null else "Choose file",
+            onAction = { balancesPicker.launch(csvTypes) },
+        )
+        OnboardingStep(
+            done = hasTransactions,
+            number = 2,
+            title = "Import your Transactions CSV",
+            subtitle = "Income, spending, cash flow, and the inflation analysis need this",
+            actionLabel = if (hasTransactions) null else "Choose file",
+            onAction = { transactionsPicker.launch(csvTypes) },
+        )
+        OnboardingStep(
+            done = false,
+            number = 3,
+            title = "Confirm your debts",
+            subtitle = "Check the detected debts and enter real APRs",
+            actionLabel = if (hasBalances) "Review" else null,
+            onAction = { navController.navigate("debts") },
+        )
+        status?.let {
+            Spacer(Modifier.height(6.dp))
+            Text(it, style = MaterialTheme.typography.labelMedium, color = Fiscal.Accent)
+        }
+        Text(
+            "Everything stays on this device — the app makes no network calls.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Fiscal.TextMuted,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+    }
+    // The confirm-before-replace dialog for these pickers lives on the Settings
+    // screen too; render it here so onboarding imports can be confirmed in place.
+    val pending by vm.pendingImport.collectAsState()
+    pending?.let { p ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { vm.cancelPendingImport() },
+            title = { Text("Import ${p.preview.rows} rows?") },
+            text = {
+                Text(
+                    "${if (p.preview.kind == com.financedashboard.app.data.CsvImporter.Preview.Kind.BALANCES) "Balances" else "Transactions"} file" +
+                        (p.preview.from?.let { " covering $it → ${p.preview.to}" } ?: "") +
+                        ". This replaces any previously imported data of the same type.",
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { vm.confirmPendingImport() }) { Text("Import") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { vm.cancelPendingImport() }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun OnboardingStep(
+    done: Boolean,
+    number: Int,
+    title: String,
+    subtitle: String,
+    actionLabel: String?,
+    onAction: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
+        Box(
+            Modifier
+                .size(28.dp)
+                .background(if (done) Fiscal.Accent else Fiscal.Track, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                if (done) "✓" else number.toString(),
+                style = MaterialTheme.typography.labelLarge,
+                color = if (done) Fiscal.OnAccent else Fiscal.TextSecondary,
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = Fiscal.TextPrimary)
+            Text(subtitle, style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted)
+        }
+        actionLabel?.let {
+            androidx.compose.material3.TextButton(onClick = onAction) { Text(it, color = Fiscal.Accent) }
+        }
+    }
 }
 
 @Composable

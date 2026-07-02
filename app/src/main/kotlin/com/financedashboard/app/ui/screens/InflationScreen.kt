@@ -101,17 +101,25 @@ fun InflationScreen(vm: AppViewModel) {
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                val labels = listOf(imp.baseYear) + imp.years.map { it.year }
+                val forward by vm.forwardProjection.collectAsState()
+                val labels = listOf(imp.baseYear) + imp.years.map { it.year } +
+                    (forward?.years?.map { it.year } ?: emptyList())
                 val nominal = listOf(imp.baseIncome) + imp.years.map { it.actualIncome }
                 val real = listOf(imp.baseIncome) + imp.years.map { it.realIncome }
+                // Dashed projection series overlap history exactly, then extend 5 years.
+                val projNominal = forward?.let { nominal + it.years.map { y -> y.nominal } }
+                val projReal = forward?.let { real + it.years.map { y -> y.real } }
+                val allValues = (projNominal ?: nominal) + (projReal ?: real)
                 LineChart(
-                    series = listOf(
+                    series = listOfNotNull(
+                        projNominal?.let { Series("Projected nominal", it, Fiscal.Accent.copy(alpha = 0.55f), dashed = true) },
+                        projReal?.let { Series("Projected real", it, Fiscal.Amber.copy(alpha = 0.55f), dashed = true) },
                         Series("Nominal (what you're paid)", nominal, Fiscal.Accent),
                         Series("Real buying power", real, Fiscal.Amber),
                     ),
                     xLabel = { i -> labels.getOrNull(i)?.toString() ?: "" },
                     // Pin y-min just below the smallest value to amplify the divergence.
-                    yMinOverride = minOf(nominal.min(), real.min()) * 0.97,
+                    yMinOverride = allValues.min() * 0.97,
                 )
                 if (avgMonthlyIncome > 0.005) {
                     Spacer(Modifier.height(6.dp))
@@ -175,6 +183,107 @@ fun InflationScreen(vm: AppViewModel) {
                         color = if (gapPts < 0) Fiscal.CoralTintText else Fiscal.Accent,
                     )
                 }
+            }
+
+            // Forward-looking projector: will next year's raise keep up?
+            val forward2 by vm.forwardProjection.collectAsState()
+            val futureRaise by vm.futureRaisePct.collectAsState()
+            val futureInfl by vm.futureInflationPct.collectAsState()
+            FiscalCard {
+                Eyebrow("If this continues…")
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Future raises: ${"%.1f".format(futureRaise)}%/yr",
+                    style = MaterialTheme.typography.labelLarge, color = Fiscal.TextPrimary,
+                )
+                androidx.compose.material3.Slider(
+                    value = futureRaise.toFloat(),
+                    onValueChange = { vm.setFutureRaisePct((it * 2).toInt() / 2.0) },
+                    valueRange = 0f..10f,
+                )
+                Text(
+                    "Future inflation: ${"%.1f".format(futureInfl)}%/yr",
+                    style = MaterialTheme.typography.labelLarge, color = Fiscal.TextPrimary,
+                )
+                androidx.compose.material3.Slider(
+                    value = futureInfl.toFloat(),
+                    onValueChange = { vm.setFutureInflationPct((it * 2).toInt() / 2.0) },
+                    valueRange = 0f..10f,
+                )
+                forward2?.let { f ->
+                    val fiveYr = f.years.last()
+                    Text(
+                        if (f.realDeltaPctPerYear < 0)
+                            "At ${"%.1f".format(futureRaise)}% raises vs ${"%.1f".format(futureInfl)}% inflation, that's a " +
+                                "${"%.1f".format(-f.realDeltaPctPerYear)}% real pay cut per year — by ${fiveYr.year} your " +
+                                "${fullCurrency(fiveYr.nominal)} salary buys only ${fullCurrency(fiveYr.real)} in ${imp.baseYear} dollars."
+                        else
+                            "At ${"%.1f".format(futureRaise)}% raises vs ${"%.1f".format(futureInfl)}% inflation you gain " +
+                                "${"%.1f".format(f.realDeltaPctPerYear)}% real per year — by ${fiveYr.year} you'd earn " +
+                                "${fullCurrency(fiveYr.real)} in ${imp.baseYear} dollars.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (f.realDeltaPctPerYear < 0) Fiscal.CoralTintText else Fiscal.Accent,
+                    )
+                }
+            }
+
+            // Personal inflation: your spending mix, your rate.
+            val personal by vm.personalInflation.collectAsState()
+            var editingCategory by remember { mutableStateOf<String?>(null) }
+            personal?.takeIf { it.categories.isNotEmpty() }?.let { pi ->
+                FiscalCard {
+                    Eyebrow("Your personal inflation rate")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "${"%.1f".format(pi.ratePct)}%",
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = if (pi.ratePct > pi.headlinePct) Fiscal.Coral else Fiscal.Accent,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            "headline CPI ${"%.1f".format(pi.headlinePct)}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Fiscal.TextMuted,
+                        )
+                    }
+                    Text(
+                        "Weighted by your last 12 months of spending. Categories default to headline CPI — tap one to " +
+                            "set the rate you actually experience (rent, groceries, and insurance often run hotter).",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Fiscal.TextMuted,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    for (c in pi.categories.take(6)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp)
+                                .let { m -> m },
+                        ) {
+                            Text(
+                                "${c.category} · ${(c.share * 100).toInt()}% of spend",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Fiscal.TextSecondary,
+                                modifier = Modifier.weight(1f),
+                            )
+                            androidx.compose.material3.TextButton(onClick = { editingCategory = c.category }) {
+                                Text("${"%.1f".format(c.ratePct)}%", color = Fiscal.TextPrimary)
+                            }
+                        }
+                    }
+                }
+            }
+            editingCategory?.let { cat ->
+                NumberEntryDialog(
+                    title = "Annual inflation for $cat",
+                    fields = listOf("Rate %/yr" to ""),
+                    onConfirm = { (rate) ->
+                        if (rate in -20.0..50.0) vm.setCategoryRate(cat, rate)
+                        editingCategory = null
+                    },
+                    onDismiss = { editingCategory = null },
+                )
             }
 
             // Baseline year picker.
@@ -245,18 +354,51 @@ fun InflationScreen(vm: AppViewModel) {
         }
     }
 
+    var suspiciousEntry by remember { mutableStateOf<Pair<Int, Double>?>(null) }
     if (showIncomeDialog) {
+        val incomeByYear by vm.incomeByYear.collectAsState()
         NumberEntryDialog(
             title = "Add gross income for a year",
             fields = listOf(
                 "Year" to java.time.LocalDate.now().year.minus(1).toString(),
                 "Gross income (\$)" to "",
             ),
-            onConfirm = { (year, amount) ->
-                vm.setManualIncome(year.toInt(), amount)
-                showIncomeDialog = false
+            onConfirm = { (yearD, amount) ->
+                val year = yearD.toInt()
+                val currentYear = java.time.LocalDate.now().year
+                if (year in 1950..currentYear && amount > 0 && amount < 10_000_000) {
+                    // Flag entries that jump >50% vs an adjacent year — usually a typo.
+                    val neighbors = listOfNotNull(incomeByYear[year - 1], incomeByYear[year + 1])
+                    val suspicious = neighbors.any { n ->
+                        n > 0 && (amount / n > 1.5 || amount / n < 1.0 / 1.5)
+                    }
+                    if (suspicious) suspiciousEntry = year to amount
+                    else vm.setManualIncome(year, amount)
+                    showIncomeDialog = false
+                }
             },
             onDismiss = { showIncomeDialog = false },
+        )
+    }
+    suspiciousEntry?.let { (year, amount) ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { suspiciousEntry = null },
+            title = { Text("Double-check this entry?") },
+            text = {
+                Text(
+                    "${fullCurrency(amount)} for $year is more than 50% different from the adjacent year — " +
+                        "that's usually a typo. Save it anyway?",
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    vm.setManualIncome(year, amount)
+                    suspiciousEntry = null
+                }) { Text("Save anyway") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { suspiciousEntry = null }) { Text("Discard") }
+            },
         )
     }
 }

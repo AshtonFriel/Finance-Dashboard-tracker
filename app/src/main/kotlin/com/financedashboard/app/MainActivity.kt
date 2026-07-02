@@ -1,9 +1,21 @@
 package com.financedashboard.app
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
+import com.financedashboard.app.data.SettingsStore
+import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -61,13 +73,69 @@ private val destinations = listOf(
     Destination("more", "More", Icons.Filled.MoreHoriz),
 )
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             FinanceDashboardTheme {
-                AppScaffold()
+                BiometricGate(activity = this) {
+                    AppScaffold()
+                }
+            }
+        }
+    }
+}
+
+private val AUTHENTICATORS =
+    BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+
+@Composable
+private fun BiometricGate(
+    activity: FragmentActivity,
+    content: @Composable () -> Unit,
+) {
+    // null = still reading the setting; avoids flashing data before the lock engages.
+    val lockEnabled by produceState<Boolean?>(initialValue = null) {
+        value = SettingsStore(activity).biometricLock.first()
+    }
+    var unlocked by remember { mutableStateOf(false) }
+
+    fun prompt() {
+        val biometricPrompt = BiometricPrompt(
+            activity,
+            ContextCompat.getMainExecutor(activity),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    unlocked = true
+                }
+            },
+        )
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Unlock Finance Dashboard")
+            .setAllowedAuthenticators(AUTHENTICATORS)
+            .build()
+        biometricPrompt.authenticate(info)
+    }
+
+    when {
+        lockEnabled == null -> Box(Modifier.fillMaxSize().background(Fiscal.Background))
+        lockEnabled == false || unlocked -> content()
+        else -> {
+            LaunchedEffect(Unit) {
+                val canAuth = BiometricManager.from(activity).canAuthenticate(AUTHENTICATORS)
+                if (canAuth == BiometricManager.BIOMETRIC_SUCCESS) prompt()
+                else unlocked = true // no credential set up on device — don't lock the user out
+            }
+            Column(
+                Modifier.fillMaxSize().background(Fiscal.Background),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("Locked", style = MaterialTheme.typography.headlineSmall, color = Fiscal.TextPrimary)
+                androidx.compose.material3.TextButton(onClick = { prompt() }) {
+                    Text("Unlock", color = Fiscal.Accent)
+                }
             }
         }
     }

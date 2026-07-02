@@ -42,10 +42,10 @@ fun SettingsScreen(vm: AppViewModel) {
     var confirmWipe by remember { mutableStateOf(false) }
 
     val balancesPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { vm.importBalances(it) }
+        uri?.let { vm.requestImportBalances(it) }
     }
     val transactionsPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { vm.importTransactions(it) }
+        uri?.let { vm.requestImportTransactions(it) }
     }
     val csvTypes = arrayOf("text/csv", "text/comma-separated-values", "application/csv", "text/plain")
 
@@ -112,14 +112,26 @@ fun SettingsScreen(vm: AppViewModel) {
             }
         }
 
-        SectionTitle("Privacy")
+        SectionTitle("Privacy & security")
         Card {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "All data stays in a local database on this device. The app makes no network calls.",
+                    "All data stays in an encrypted local database on this device. The app makes no network calls.",
                     style = MaterialTheme.typography.bodySmall,
                     color = chart.secondaryInk,
                 )
+                val biometric by vm.biometricLock.collectAsState()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Switch(
+                        checked = biometric,
+                        onCheckedChange = { vm.setBiometricLock(it) },
+                    )
+                    Text(
+                        "Require fingerprint / face unlock on launch",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
                 OutlinedButton(
                     onClick = { confirmWipe = true },
                     modifier = Modifier.fillMaxWidth(),
@@ -128,6 +140,74 @@ fun SettingsScreen(vm: AppViewModel) {
                 }
             }
         }
+    }
+
+    // Replace-all import preview: review before committing.
+    val pending by vm.pendingImport.collectAsState()
+    pending?.let { p ->
+        AlertDialog(
+            onDismissRequest = { vm.cancelPendingImport() },
+            title = { Text(if (p.preview.kind == com.financedashboard.app.data.CsvImporter.Preview.Kind.BALANCES) "Replace balances?" else "Replace transactions?") },
+            text = {
+                Column {
+                    Text(
+                        "New file: ${p.preview.rows} rows across ${p.preview.accounts} accounts" +
+                            (p.preview.from?.let { ", $it → ${p.preview.to}" } ?: ""),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        if (p.preview.kind == com.financedashboard.app.data.CsvImporter.Preview.Kind.BALANCES) {
+                            "Currently stored: ${p.currentRows} rows" +
+                                (p.currentRange?.let { ", ${it.first} → ${it.second}" } ?: "")
+                        } else {
+                            "Currently stored: ${p.currentRows} transactions"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = chart.secondaryInk,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                    if (p.preview.kind == com.financedashboard.app.data.CsvImporter.Preview.Kind.BALANCES &&
+                        p.currentRows > p.preview.rows
+                    ) {
+                        Text(
+                            "⚠ The new file has fewer rows than what's stored — it may be older or partial.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = chart.seriesYellow,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                    Text(
+                        "Importing replaces the stored data entirely. Nothing changes if you cancel.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = chart.mutedInk,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.confirmPendingImport() }) { Text("Replace") } },
+            dismissButton = { TextButton(onClick = { vm.cancelPendingImport() }) { Text("Cancel") } },
+        )
+    }
+
+    // One-time revolving-or-not question per fresh card account.
+    val cardQuestions by vm.cardQuestions.collectAsState()
+    cardQuestions.firstOrNull()?.let { (name, balance) ->
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("Card: $name") },
+            text = {
+                Text(
+                    "This card shows a ${com.financedashboard.app.ui.charts.fullCurrency(balance)} balance. " +
+                        "Does it carry a balance month to month (revolving debt), or is it paid in full?",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.answerCardQuestion(name, revolves = true) }) { Text("Carries a balance") }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.answerCardQuestion(name, revolves = false) }) { Text("Paid in full") }
+            },
+        )
     }
 
     editCpiYear?.let { year ->

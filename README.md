@@ -39,7 +39,7 @@ gradle :app:assembleDebug  # APK at app/build/outputs/apk/debug/app-debug.apk
 
 ## Roadmap
 
-- Database encryption (SQLCipher) + biometric app lock
-- CSV export of amortization/projection tables via the share sheet
 - Milestone/net-worth notifications
 - Optional opt-in CPI refresh from the BLS API
+
+Implemented beyond the original spec: emergency fund tracking with EF-first payoff sequencing, cash-flow view with savings rate, debt-budget-to-investing redirect, lump-sum payments, extra-payment annual growth, custom payoff ordering, per-debt payoff what-ifs, bad-decade stress testing, per-sleeve (crypto vs equities) volatility bands, multiple investment goals, personal spending-weighted inflation rate, forward-looking raise-vs-inflation projector, import preview with replace confirmation, guided onboarding, biometric app lock, SQLCipher database encryption with safe plaintext migration, and share-sheet CSV export of amortization/projection tables.

@@ -3,7 +3,7 @@ package com.financedashboard.core.engine
 import com.financedashboard.core.model.Debt
 import java.time.YearMonth
 
-enum class PayoffStrategy { AVALANCHE, SNOWBALL, PRO_RATA }
+enum class PayoffStrategy { AVALANCHE, SNOWBALL, PRO_RATA, CUSTOM }
 
 /**
  * Standard monthly amortization with extra-payment support and freed-payment
@@ -62,12 +62,28 @@ object AmortizationEngine {
         }
     }
 
+    /**
+     * @param extraGrowthPctPerYear the extra payment grows by this each year
+     *   (e.g. raises): extra(month m) = extraMonthly x (1+g)^floor((m-1)/12)
+     * @param lumpSums one-time payments pinned to specific months, added to
+     *   that month's strategy budget
+     * @param customOrder explicit payoff priority for [PayoffStrategy.CUSTOM];
+     *   debts not listed fall back to avalanche order after listed ones
+     */
     fun computePlan(
         debts: List<Debt>,
         strategy: PayoffStrategy,
         extraMonthly: Double,
         startMonth: YearMonth,
-    ): PlanResult = run(debts, strategy, startMonth) { extraMonthly }
+        extraGrowthPctPerYear: Double = 0.0,
+        lumpSums: Map<YearMonth, Double> = emptyMap(),
+        customOrder: List<String> = emptyList(),
+    ): PlanResult = run(debts, strategy, startMonth, customOrder) { n ->
+        grownExtra(extraMonthly, extraGrowthPctPerYear, n) + (lumpSums[startMonth.plusMonths(n.toLong())] ?: 0.0)
+    }
+
+    private fun grownExtra(extra: Double, growthPct: Double, paymentNumber: Int): Double =
+        extra * Math.pow(1.0 + growthPct / 100.0, ((paymentNumber - 1) / 12).toDouble())
 
     data class EmergencyFundPlan(
         val plan: PlanResult,
@@ -91,6 +107,9 @@ object AmortizationEngine {
         startMonth: YearMonth,
         efStartBalance: Double,
         efTargetAmount: Double,
+        extraGrowthPctPerYear: Double = 0.0,
+        lumpSums: Map<YearMonth, Double> = emptyMap(),
+        customOrder: List<String> = emptyList(),
     ): EmergencyFundPlan {
         // Precompute the fund's fill schedule and the extra left for debt each month.
         var ef = efStartBalance.coerceAtLeast(0.0)
@@ -98,14 +117,15 @@ object AmortizationEngine {
         val extraForDebt = DoubleArray(MAX_MONTHS)
         var fundedMonth: YearMonth? = if (ef >= efTargetAmount - EPS) startMonth else null
         for (m in 1..MAX_MONTHS) {
-            val toFund = (efTargetAmount - ef).coerceIn(0.0, extraMonthly)
-            ef += toFund
-            extraForDebt[m - 1] = extraMonthly - toFund
             val month = startMonth.plusMonths(m.toLong())
+            val available = grownExtra(extraMonthly, extraGrowthPctPerYear, m) + (lumpSums[month] ?: 0.0)
+            val toFund = (efTargetAmount - ef).coerceIn(0.0, available)
+            ef += toFund
+            extraForDebt[m - 1] = available - toFund
             efByMonth.add(month to ef)
             if (fundedMonth == null && ef >= efTargetAmount - EPS) fundedMonth = month
         }
-        val plan = run(debts, strategy, startMonth) { paymentNumber -> extraForDebt[paymentNumber - 1] }
+        val plan = run(debts, strategy, startMonth, customOrder) { paymentNumber -> extraForDebt[paymentNumber - 1] }
         return EmergencyFundPlan(
             plan = plan,
             efSeries = efByMonth.take(plan.combinedBalanceByMonth.size),
@@ -118,8 +138,11 @@ object AmortizationEngine {
         debts: List<Debt>,
         strategy: PayoffStrategy,
         startMonth: YearMonth,
+        customOrder: List<String> = emptyList(),
         extraAt: (paymentNumber: Int) -> Double,
     ): PlanResult {
+        // CUSTOM: explicit rank; unlisted debts follow listed ones in APR order.
+        val customRank = customOrder.withIndex().associate { (i, name) -> name to i }
         val states = debts.filter { it.balance > EPS }.map { State(it) }
         val combined = mutableListOf(startMonth to states.sumOf { it.balance })
 
@@ -159,9 +182,13 @@ object AmortizationEngine {
                         var remaining = budget
                         while (remaining > EPS) {
                             val target = states.filter { it.balance > EPS }.let { cs ->
-                                if (strategy == PayoffStrategy.AVALANCHE)
-                                    cs.maxByOrNull { it.debt.annualRatePct }
-                                else cs.minByOrNull { it.balance }
+                                when (strategy) {
+                                    PayoffStrategy.AVALANCHE -> cs.maxByOrNull { it.debt.annualRatePct }
+                                    PayoffStrategy.SNOWBALL -> cs.minByOrNull { it.balance }
+                                    else -> cs.minByOrNull {
+                                        (customRank[it.debt.name] ?: Int.MAX_VALUE).toDouble() * 1e6 - it.debt.annualRatePct
+                                    }
+                                }
                             } ?: break
                             val pay = minOf(remaining, target.balance)
                             target.pay(pay)
@@ -217,11 +244,14 @@ object AmortizationEngine {
         debts: List<Debt>,
         extraMonthly: Double,
         startMonth: YearMonth,
+        extraGrowthPctPerYear: Double = 0.0,
+        lumpSums: Map<YearMonth, Double> = emptyMap(),
+        customOrder: List<String> = emptyList(),
     ): List<StrategyComparison> {
         val baseline = computePlan(debts, PayoffStrategy.PRO_RATA, 0.0, startMonth)
         val baselineMonths = baseline.combinedBalanceByMonth.size - 1
         return PayoffStrategy.entries.map { strat ->
-            val plan = computePlan(debts, strat, extraMonthly, startMonth)
+            val plan = computePlan(debts, strat, extraMonthly, startMonth, extraGrowthPctPerYear, lumpSums, customOrder)
             val months = plan.combinedBalanceByMonth.size - 1
             StrategyComparison(
                 strategy = strat,

@@ -58,6 +58,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.get(app)
     val repo = FinanceRepository(db)
     private val importer = CsvImporter(app, db)
+    private val settings = com.financedashboard.app.data.SettingsStore(app)
 
     private fun <T> kotlinx.coroutines.flow.Flow<T>.asState(initial: T) =
         stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), initial)
@@ -140,10 +141,52 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun List<DebtInput>.toDebts() = filter { it.includeInPlan }
         .map { Debt(it.accountName, it.balance, it.aprPct, it.minPayment) }
 
-    val debtPlan = combine(debtInputs, extraMonthly, strategy) { inputs, extra, strat ->
+    // ---- Emergency fund ----
+    val liquidCash = repo.liquidCash.asState(0.0)
+    val avgMonthlyExpenses = repo.monthlyExpenses(6).map { months ->
+        com.financedashboard.core.engine.EmergencyFundEngine.averageMonthlyExpenses(months.map { it.second })
+    }.asState(0.0)
+    val efTargetMonths = settings.efTargetMonths.asState(6)
+    val efMonthlySaving = settings.efMonthlySaving.asState(500.0)
+    val efFirstInPayoff = settings.efFirstInPayoff.asState(false)
+
+    val emergencyFund = combine(
+        liquidCash, avgMonthlyExpenses, efTargetMonths, efMonthlySaving,
+    ) { cash, expenses, months, saving ->
+        if (expenses <= 0.005 && cash <= 0.005) null
+        else com.financedashboard.core.engine.EmergencyFundEngine.compute(cash, expenses, months, saving)
+    }.flowOn(Dispatchers.Default).asState(null)
+
+    fun setEfTargetMonths(v: Int) = viewModelScope.launch { settings.setEfTargetMonths(v) }
+    fun setEfMonthlySaving(v: Double) = viewModelScope.launch { settings.setEfMonthlySaving(v) }
+    fun setEfFirstInPayoff(v: Boolean) = viewModelScope.launch { settings.setEfFirstInPayoff(v) }
+
+    private data class EfConfig(val enabled: Boolean, val startBalance: Double, val targetAmount: Double)
+
+    private val efConfig = combine(
+        efFirstInPayoff, liquidCash, avgMonthlyExpenses, efTargetMonths,
+    ) { enabled, cash, expenses, months ->
+        EfConfig(enabled && expenses > 0.005, cash, expenses * months)
+    }
+
+    /** Plan plus, when EF-first is on, the fund schedule that precedes debt attack. */
+    data class ActiveDebtPlan(
+        val plan: AmortizationEngine.PlanResult,
+        val ef: AmortizationEngine.EmergencyFundPlan?,
+    )
+
+    val debtPlan = combine(debtInputs, extraMonthly, strategy, efConfig) { inputs, extra, strat, ef ->
         val debts = inputs.toDebts()
-        if (debts.isEmpty()) null
-        else AmortizationEngine.computePlan(debts, strat, extra, YearMonth.now())
+        when {
+            debts.isEmpty() -> null
+            ef.enabled -> {
+                val efPlan = AmortizationEngine.computePlanWithEmergencyFund(
+                    debts, strat, extra, YearMonth.now(), ef.startBalance, ef.targetAmount,
+                )
+                ActiveDebtPlan(efPlan.plan, efPlan)
+            }
+            else -> ActiveDebtPlan(AmortizationEngine.computePlan(debts, strat, extra, YearMonth.now()), null)
+        }
     }.flowOn(Dispatchers.Default).asState(null)
 
     /** Same debts with no extra payment, for the comparison overlay + delta banner. */

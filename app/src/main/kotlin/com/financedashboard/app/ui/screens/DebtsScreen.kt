@@ -17,6 +17,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -146,21 +147,79 @@ fun DebtsScreen(vm: AppViewModel) {
             valueRange = 0f..2000f,
         )
 
+        // Emergency-fund-first sequencing.
+        val efFirst by vm.efFirstInPayoff.collectAsState()
+        val efMonths by vm.efTargetMonths.collectAsState()
+        val avgExpenses by vm.avgMonthlyExpenses.collectAsState()
+        val liquidCash by vm.liquidCash.collectAsState()
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = efFirst, onCheckedChange = { vm.setEfFirstInPayoff(it) })
+            Column(Modifier.padding(start = 8.dp)) {
+                Text("Build emergency fund first", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    "Extra payments fill a ${efMonths}-month cushion before attacking debt",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = chart.mutedInk,
+                )
+            }
+        }
+        if (efFirst) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (m in listOf(3, 4, 5, 6)) {
+                    FilterChip(
+                        selected = efMonths == m,
+                        onClick = { vm.setEfTargetMonths(m) },
+                        label = { Text("$m mo") },
+                    )
+                }
+            }
+            if (avgExpenses > 0.005) {
+                Text(
+                    "Target ${fullCurrency(avgExpenses * efMonths)} (${efMonths} × ${fullCurrency(avgExpenses)} avg monthly spending) • " +
+                        "starting from ${fullCurrency(liquidCash)} cash on hand",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = chart.secondaryInk,
+                )
+            } else {
+                Text(
+                    "Import a Transactions CSV so average monthly spending (and the fund target) can be computed.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = chart.seriesYellow,
+                )
+            }
+        }
+
         // Delta banner vs. no-extra baseline.
-        val p = plan
+        val p = plan?.plan
+        val efPlan = plan?.ef
         val b = baseline
-        if (p != null && b != null && extra > 0) {
+        if (p != null && b != null && (extra > 0 || efPlan != null)) {
             val monthsSaved = (b.combinedBalanceByMonth.size - p.combinedBalanceByMonth.size)
             val interestSaved = b.totalInterest - p.totalInterest
             Card {
-                Text(
-                    "Extra ${fullCurrency(extra)}/mo → debt-free $monthsSaved months sooner, " +
-                        "saves ${fullCurrency(interestSaved)} in interest",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = chart.good,
-                    modifier = Modifier.padding(12.dp),
-                )
+                Column(Modifier.padding(12.dp)) {
+                    efPlan?.efFundedMonth?.let { funded ->
+                        Text(
+                            "${fullCurrency(efPlan.efTargetAmount)} emergency fund ready ${funded.format(monthFmt)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = chart.seriesAqua,
+                        )
+                    }
+                    if (extra > 0) {
+                        Text(
+                            if (monthsSaved >= 0)
+                                "Extra ${fullCurrency(extra)}/mo → debt-free $monthsSaved months sooner, " +
+                                    "saves ${fullCurrency(interestSaved)} in interest"
+                            else
+                                "Funding the cushion first delays payoff ${-monthsSaved} months and costs " +
+                                    "${fullCurrency(-interestSaved)} more interest — the price of safety",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (monthsSaved >= 0) chart.good else chart.seriesYellow,
+                        )
+                    }
+                }
             }
         }
 
@@ -189,9 +248,17 @@ fun DebtsScreen(vm: AppViewModel) {
                             dashed = true,
                         )
                     }
+                    val efOverlay = efPlan?.let { e ->
+                        val efByMonth = e.efSeries.toMap()
+                        Series(
+                            label = "Emergency fund",
+                            values = months.map { efByMonth[it] ?: e.efTargetAmount },
+                            color = chart.seriesAqua,
+                        )
+                    }
                     StackedAreaChart(
                         series = stackSeries,
-                        overlays = listOfNotNull(overlay),
+                        overlays = listOfNotNull(overlay, efOverlay),
                         xLabel = { i -> months.getOrNull(i)?.format(monthFmt) ?: "" },
                     )
                     activePlan.payoffMonth?.let {

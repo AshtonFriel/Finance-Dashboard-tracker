@@ -67,6 +67,58 @@ object AmortizationEngine {
         strategy: PayoffStrategy,
         extraMonthly: Double,
         startMonth: YearMonth,
+    ): PlanResult = run(debts, strategy, startMonth) { extraMonthly }
+
+    data class EmergencyFundPlan(
+        val plan: PlanResult,
+        /** Emergency fund balance at each month, aligned with the plan's start. */
+        val efSeries: List<Pair<YearMonth, Double>>,
+        /** Month the fund reaches its target; null if it never does within the plan. */
+        val efFundedMonth: YearMonth?,
+        val efTargetAmount: Double,
+    )
+
+    /**
+     * Sequenced plan: minimum payments always continue, but the extra budget
+     * fills the emergency fund to [efTargetAmount] before any of it goes to
+     * debt. The month the fund crosses its target, the remainder (and every
+     * later month's extra) flows to the payoff strategy.
+     */
+    fun computePlanWithEmergencyFund(
+        debts: List<Debt>,
+        strategy: PayoffStrategy,
+        extraMonthly: Double,
+        startMonth: YearMonth,
+        efStartBalance: Double,
+        efTargetAmount: Double,
+    ): EmergencyFundPlan {
+        // Precompute the fund's fill schedule and the extra left for debt each month.
+        var ef = efStartBalance.coerceAtLeast(0.0)
+        val efByMonth = mutableListOf(startMonth to ef)
+        val extraForDebt = DoubleArray(MAX_MONTHS)
+        var fundedMonth: YearMonth? = if (ef >= efTargetAmount - EPS) startMonth else null
+        for (m in 1..MAX_MONTHS) {
+            val toFund = (efTargetAmount - ef).coerceIn(0.0, extraMonthly)
+            ef += toFund
+            extraForDebt[m - 1] = extraMonthly - toFund
+            val month = startMonth.plusMonths(m.toLong())
+            efByMonth.add(month to ef)
+            if (fundedMonth == null && ef >= efTargetAmount - EPS) fundedMonth = month
+        }
+        val plan = run(debts, strategy, startMonth) { paymentNumber -> extraForDebt[paymentNumber - 1] }
+        return EmergencyFundPlan(
+            plan = plan,
+            efSeries = efByMonth.take(plan.combinedBalanceByMonth.size),
+            efFundedMonth = fundedMonth,
+            efTargetAmount = efTargetAmount,
+        )
+    }
+
+    private fun run(
+        debts: List<Debt>,
+        strategy: PayoffStrategy,
+        startMonth: YearMonth,
+        extraAt: (paymentNumber: Int) -> Double,
     ): PlanResult {
         val states = debts.filter { it.balance > EPS }.map { State(it) }
         val combined = mutableListOf(startMonth to states.sumOf { it.balance })
@@ -79,7 +131,7 @@ object AmortizationEngine {
             val open = states.filter { it.balance > EPS }
 
             // Budget = every debt's minimum (retired debts' minimums roll over) + extra.
-            var budget = states.sumOf { it.debt.minPayment } + extraMonthly
+            var budget = states.sumOf { it.debt.minPayment } + extraAt(paymentNumber)
 
             // Accrue interest, then minimum payments.
             for (s in open) {
@@ -141,7 +193,7 @@ object AmortizationEngine {
         }
         return PlanResult(
             strategy = strategy,
-            extraMonthly = extraMonthly,
+            extraMonthly = extraAt(1),
             debts = results,
             payoffMonth = results.mapNotNull { it.payoffMonth }.maxOrNull(),
             totalPaid = results.sumOf { it.totalPaid },

@@ -113,6 +113,29 @@ class FinanceRepository(private val db: AppDatabase) {
     val debtAssumptions: Flow<Map<String, DebtAssumptionEntity>> =
         db.debtAssumptionDao().all().map { list -> list.associateBy { it.accountName } }
 
+    /** Latest positive balances across cash accounts — the emergency-fund base. */
+    val liquidCash: Flow<Double> = accounts.map { accs ->
+        accs.filter { it.type == AccountType.CASH }.sumOf { it.latestBalance.coerceAtLeast(0.0) }
+    }
+
+    /**
+     * Total spending per month over the trailing [months] full months (current
+     * partial month excluded). Transfers, card payments, and loan repayments are
+     * excluded so purchases aren't double-counted against their payoffs.
+     */
+    fun monthlyExpenses(months: Int): Flow<List<Pair<YearMonth, Double>>> {
+        val since = LocalDate.now().minusMonths(months + 1L).withDayOfMonth(1)
+        val currentMonth = YearMonth.now()
+        return db.transactionDao().expensesSince(since.toEpochDay()).map { txs ->
+            txs.groupBy { YearMonth.from(LocalDate.ofEpochDay(it.epochDay)) }
+                .filterKeys { it < currentMonth }
+                .mapValues { (_, list) -> list.sumOf { -it.amount } }
+                .toSortedMap()
+                .toList()
+                .takeLast(months)
+        }
+    }
+
     fun spendingByCategory(since: LocalDate): Flow<List<CategoryTotal>> =
         db.transactionDao().spendingByCategory(since.toEpochDay())
 

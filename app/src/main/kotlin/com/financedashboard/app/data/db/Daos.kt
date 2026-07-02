@@ -84,6 +84,15 @@ interface TransactionDao {
     )
     fun spendingByCategory(sinceEpochDay: Long): Flow<List<CategoryTotal>>
 
+    @Query(
+        """
+        SELECT * FROM transactions
+        WHERE epochDay >= :sinceEpochDay AND amount < 0
+          AND category NOT IN ('Transfer', 'Credit Card Payment', 'Loan Repayment')
+        """
+    )
+    fun expensesSince(sinceEpochDay: Long): Flow<List<TransactionEntity>>
+
     @Query("SELECT COUNT(*) FROM transactions")
     fun count(): Flow<Int>
 

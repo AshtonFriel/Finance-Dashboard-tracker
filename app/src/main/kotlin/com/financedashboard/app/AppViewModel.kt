@@ -20,10 +20,12 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Default assumptions offered per debt type; always user-editable. */
 object DefaultRates {
@@ -457,8 +459,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.asState(emptyList())
 
-    // ---- Spending ----
+    // ---- Spending & insights ----
     val spendingLastYear = repo.spendingByCategory(java.time.LocalDate.now().minusMonths(12)).asState(emptyList())
+    val recurringCharges = repo.recurringCharges.asState(emptyList())
+    val recurringMonthlyTotal = repo.recurringCharges.map {
+        com.financedashboard.core.engine.RecurringDetector.monthlyTotal(it)
+    }.asState(0.0)
+    val topMovers = repo.topMovers.asState(emptyList())
+    val inferredPayments = repo.inferredPayments.asState(emptyMap())
+
+    // Transaction browser.
+    val searchQuery = MutableStateFlow("")
+    val searchCategory = MutableStateFlow("")
+    fun setSearchQuery(v: String) { searchQuery.value = v }
+    fun setSearchCategory(v: String) { searchCategory.value = if (searchCategory.value == v) "" else v }
+
+    val searchResults = combine(searchQuery, searchCategory) { q, c -> q to c }
+        .flatMapLatest { (q, c) -> repo.searchTransactions(q.trim(), c, 100) }
+        .flowOn(Dispatchers.Default)
+        .asState(emptyList())
 
     // ---- Personal (spending-weighted) inflation ----
     data class CategoryRate(val category: String, val share: Double, val ratePct: Double)
@@ -516,6 +535,132 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---- Security ----
     val biometricLock = settings.biometricLock.asState(false)
     fun setBiometricLock(v: Boolean) = viewModelScope.launch { settings.setBiometricLock(v) }
+
+    // ---- Saved scenarios (save & compare) ----
+    val savedScenarios = settings.scenarios.asState(emptyList())
+    val compareScenario = MutableStateFlow<String?>(null)
+    fun setCompareScenario(name: String?) { compareScenario.value = if (compareScenario.value == name) null else name }
+
+    fun saveCurrentScenario(name: String) = viewModelScope.launch {
+        val entry = com.financedashboard.app.data.SettingsStore.SavedScenario(
+            name = name.trim(),
+            strategy = strategy.value.name,
+            extra = extraMonthly.value,
+            growthPct = extraGrowthPct.value,
+            lumpSums = lumpSums.value,
+        )
+        settings.setScenarios(savedScenarios.value.filter { it.name != entry.name } + entry)
+    }
+
+    fun deleteScenario(name: String) = viewModelScope.launch {
+        settings.setScenarios(savedScenarios.value.filter { it.name != name })
+        if (compareScenario.value == name) compareScenario.value = null
+    }
+
+    /** Combined-balance line for the scenario selected for comparison. */
+    val comparisonPlan = combine(compareScenario, savedScenarios, debtInputs) { name, saved, inputs ->
+        val sc = saved.firstOrNull { it.name == name } ?: return@combine null
+        val debts = inputs.filter { it.includeInPlan }.map { Debt(it.accountName, it.balance, it.aprPct, it.minPayment) }
+        if (debts.isEmpty()) return@combine null
+        val strat = runCatching { PayoffStrategy.valueOf(sc.strategy) }.getOrDefault(PayoffStrategy.AVALANCHE)
+        AmortizationEngine.computePlan(debts, strat, sc.extra, YearMonth.now(), sc.growthPct, sc.lumpSums, customOrder.value)
+    }.flowOn(Dispatchers.Default).asState(null)
+
+    // ---- Inferred payments: accept into the debt assumption ----
+    fun acceptInferredPayment(name: String) = viewModelScope.launch {
+        val inferred = inferredPayments.value[name] ?: return@launch
+        val input = debtInputs.value.firstOrNull { it.accountName == name } ?: return@launch
+        repo.setDebtAssumption(DebtAssumptionEntity(name, input.aprPct, inferred.monthlyPayment, input.includeInPlan))
+    }
+
+    // ---- Rates CSV import ----
+    val ratesImportStatus = MutableStateFlow<String?>(null)
+    fun importRates(uri: Uri) = viewModelScope.launch {
+        ratesImportStatus.value = withContext(Dispatchers.IO) {
+            try {
+                val entries = getApplication<Application>().contentResolver.openInputStream(uri)?.use { s ->
+                    com.financedashboard.core.csv.RatesCsvParser().parse(java.io.BufferedReader(java.io.InputStreamReader(s)))
+                } ?: return@withContext "Could not open file"
+                if (entries.isEmpty()) "No rate rows found — expected columns like Account, APR, MinPayment"
+                else {
+                    val applied = repo.applyRateEntries(entries)
+                    "Applied $applied of ${entries.size} rates"
+                }
+            } catch (e: Exception) {
+                "Rates import failed: ${e.message}"
+            }
+        }
+    }
+
+    // ---- Backup / restore ----
+    val backupStatus = MutableStateFlow<String?>(null)
+
+    fun exportBackup() = viewModelScope.launch {
+        backupStatus.value = withContext(Dispatchers.IO) {
+            try {
+                val json = com.financedashboard.core.backup.BackupCodec.encode(repo.buildBackup())
+                val dir = java.io.File(getApplication<Application>().cacheDir, "exports").apply { mkdirs() }
+                val stamp = java.time.LocalDate.now()
+                val file = java.io.File(dir, "finance-backup-$stamp.json")
+                file.writeText(json)
+                val ctx = getApplication<Application>()
+                val fileUri = androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+                val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "application/json"
+                    putExtra(android.content.Intent.EXTRA_STREAM, fileUri)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                ctx.startActivity(android.content.Intent.createChooser(intent, "Save backup").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                "Backup ready to share"
+            } catch (e: Exception) {
+                "Backup failed: ${e.message}"
+            }
+        }
+    }
+
+    data class PendingRestore(val backup: com.financedashboard.core.backup.BackupCodec.Backup, val summary: String)
+    // (BackupCodec.Backup fully-qualified is fine here — it is only a type reference.)
+    val pendingRestore = MutableStateFlow<PendingRestore?>(null)
+
+    fun requestRestore(uri: Uri) = viewModelScope.launch {
+        backupStatus.value = withContext(Dispatchers.IO) {
+            try {
+                val text = getApplication<Application>().contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
+                val backup = text?.let { com.financedashboard.core.backup.BackupCodec.decode(it) }
+                if (backup == null) "Not a valid backup file"
+                else {
+                    pendingRestore.value = PendingRestore(
+                        backup,
+                        "${backup.balances.size} balances, ${backup.transactions.size} transactions, " +
+                            "${backup.accounts.size} accounts",
+                    )
+                    null
+                }
+            } catch (e: Exception) {
+                "Restore failed: ${e.message}"
+            }
+        }
+    }
+
+    fun confirmRestore() {
+        val pending = pendingRestore.value ?: return
+        pendingRestore.value = null
+        viewModelScope.launch {
+            backupStatus.value = "Restoring…"
+            repo.restoreBackup(pending.backup)
+            backupStatus.value = "Restored ${pending.summary}"
+        }
+    }
+
+    fun cancelRestore() { pendingRestore.value = null }
+
+    // ---- Notifications ----
+    val notificationsEnabled = settings.notificationsEnabled.asState(false)
+    fun setNotificationsEnabled(v: Boolean) = viewModelScope.launch {
+        settings.setNotificationsEnabled(v)
+        com.financedashboard.app.notify.NotifyScheduler.setEnabled(getApplication(), v)
+    }
     fun accountHistory(name: String) = repo.balanceHistory(name)
 
     // ---- Import & mutations ----

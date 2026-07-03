@@ -5,6 +5,8 @@ import com.financedashboard.app.data.db.CategoryTotal
 import com.financedashboard.app.data.db.CpiOverrideEntity
 import com.financedashboard.app.data.db.DebtAssumptionEntity
 import com.financedashboard.app.data.db.ManualIncomeEntity
+import com.financedashboard.core.backup.BackupCodec
+import com.financedashboard.core.backup.BackupCodec.Backup
 import com.financedashboard.core.engine.IncomeAggregator
 import com.financedashboard.core.engine.InflationEngine
 import com.financedashboard.core.model.AccountType
@@ -12,6 +14,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 data class AccountUi(
@@ -160,6 +163,53 @@ class FinanceRepository(private val db: AppDatabase) {
 
     fun recentTransactions(limit: Int) = db.transactionDao().recent(limit)
 
+    fun searchTransactions(query: String, category: String, limit: Int) =
+        db.transactionDao().search(query, category, limit)
+
+    /** Recurring charges (subscriptions, memberships, regular bills). */
+    val recurringCharges: Flow<List<com.financedashboard.core.engine.RecurringDetector.Subscription>> =
+        db.transactionDao().allExpenses().map { rows ->
+            com.financedashboard.core.engine.RecurringDetector.detect(
+                rows.map { it.toRecord() }, LocalDate.now(),
+            )
+        }
+
+    /** Top month-over-month category changes (current full month vs the prior). */
+    data class CategoryMove(val category: String, val current: Double, val previous: Double) {
+        val delta: Double get() = current - previous
+    }
+
+    val topMovers: Flow<List<CategoryMove>> =
+        db.transactionDao().expensesSince(LocalDate.now().minusMonths(3).withDayOfMonth(1).toEpochDay())
+            .map { rows ->
+                val currentMonth = YearMonth.now().minusMonths(1) // last full month
+                val prevMonth = currentMonth.minusMonths(1)
+                fun totals(m: YearMonth) = rows
+                    .filter { YearMonth.from(LocalDate.ofEpochDay(it.epochDay)) == m }
+                    .groupBy { it.category }
+                    .mapValues { (_, txs) -> txs.sumOf { -it.amount } }
+                val cur = totals(currentMonth)
+                val prev = totals(prevMonth)
+                (cur.keys + prev.keys).map { CategoryMove(it, cur[it] ?: 0.0, prev[it] ?: 0.0) }
+                    .filter { kotlin.math.abs(it.delta) > 1.0 }
+                    .sortedByDescending { kotlin.math.abs(it.delta) }
+                    .take(5)
+            }
+
+    /** Inferred minimum payments for the active debts, keyed by account name. */
+    val inferredPayments: Flow<Map<String, com.financedashboard.core.engine.PaymentInference.InferredPayment>> =
+        combine(debtExtraction, db.transactionDao().allExpenses()) { extraction, expenses ->
+            com.financedashboard.core.engine.PaymentInference.inferMonthlyPayments(
+                extraction.active.map { it.accountName } + extraction.needsReview.map { it.candidate.accountName },
+                expenses.map { it.toRecord() },
+            ).associateBy { it.debtAccountName }
+        }
+
+    private fun com.financedashboard.app.data.db.TransactionEntity.toRecord() =
+        com.financedashboard.core.model.TransactionRecord(
+            LocalDate.ofEpochDay(epochDay), merchant, category, account, statement, notes, amount, tags, owner,
+        )
+
     suspend fun setManualIncome(year: Int, amount: Double) =
         db.manualIncomeDao().upsert(ManualIncomeEntity(year, amount))
 
@@ -180,5 +230,82 @@ class FinanceRepository(private val db: AppDatabase) {
         db.balanceDao().deleteAll()
         db.transactionDao().deleteAll()
         db.accountDao().deleteAll()
+    }
+
+    /** Applies imported rate entries to the matching debts; returns how many matched. */
+    suspend fun applyRateEntries(
+        entries: List<com.financedashboard.core.csv.RatesCsvParser.RateEntry>,
+    ): Int {
+        val parser = com.financedashboard.core.csv.RatesCsvParser()
+        val debtNames = debtExtraction.first().let { ex ->
+            ex.active.map { it.accountName } + ex.needsReview.map { it.candidate.accountName }
+        }
+        val existing = db.debtAssumptionDao().all().first().associateBy { it.accountName }
+        var applied = 0
+        for (entry in entries) {
+            val account = parser.matchToAccount(entry, debtNames) ?: continue
+            val prior = existing[account]
+            db.debtAssumptionDao().upsert(
+                com.financedashboard.app.data.db.DebtAssumptionEntity(
+                    accountName = account,
+                    aprPct = entry.aprPct,
+                    minPayment = entry.minPayment ?: prior?.minPayment ?: 0.0,
+                    includeInPlan = prior?.includeInPlan ?: true,
+                )
+            )
+            applied++
+        }
+        return applied
+    }
+
+    // ---- Backup / restore ----
+    suspend fun buildBackup(): Backup {
+        return Backup(
+            exportedEpochMs = System.currentTimeMillis(),
+            balances = db.balanceDao().allOnce().map { BackupCodec.BalanceDto(it.epochDay, it.balance, it.accountName) },
+            transactions = db.transactionDao().allOnce().map {
+                BackupCodec.TransactionDto(it.epochDay, it.merchant, it.category, it.account, it.statement, it.notes, it.amount, it.tags, it.owner)
+            },
+            accounts = db.accountDao().all().first().map { BackupCodec.AccountDto(it.name, it.type, it.userOverridden) },
+            debtAssumptions = db.debtAssumptionDao().all().first().map {
+                BackupCodec.DebtAssumptionDto(it.accountName, it.aprPct, it.minPayment, it.includeInPlan)
+            },
+            manualIncome = db.manualIncomeDao().all().first().map { BackupCodec.ManualIncomeDto(it.year, it.grossAmount) },
+            cpiOverrides = db.cpiOverrideDao().all().first().map { BackupCodec.CpiOverrideDto(it.year, it.cpiIndex) },
+        )
+    }
+
+    suspend fun restoreBackup(backup: Backup) {
+        db.balanceDao().replaceAll(
+            backup.balances.map {
+                com.financedashboard.app.data.db.BalanceEntity(epochDay = it.epochDay, balance = it.balance, accountName = it.account)
+            }
+        )
+        db.transactionDao().replaceAll(
+            backup.transactions.map {
+                com.financedashboard.app.data.db.TransactionEntity(
+                    epochDay = it.epochDay, merchant = it.merchant, category = it.category, account = it.account,
+                    statement = it.statement, notes = it.notes, amount = it.amount, tags = it.tags, owner = it.owner,
+                )
+            }
+        )
+        db.accountDao().deleteAll()
+        for (a in backup.accounts) {
+            db.accountDao().insertIgnore(
+                com.financedashboard.app.data.db.AccountEntity(name = a.name, type = a.type, userOverridden = a.userOverridden)
+            )
+            if (a.userOverridden) db.accountDao().overrideType(a.name, a.type)
+        }
+        for (d in backup.debtAssumptions) {
+            db.debtAssumptionDao().upsert(
+                com.financedashboard.app.data.db.DebtAssumptionEntity(d.accountName, d.aprPct, d.minPayment, d.includeInPlan)
+            )
+        }
+        for (m in backup.manualIncome) db.manualIncomeDao().upsert(
+            com.financedashboard.app.data.db.ManualIncomeEntity(m.year, m.grossAmount)
+        )
+        for (c in backup.cpiOverrides) db.cpiOverrideDao().upsert(
+            com.financedashboard.app.data.db.CpiOverrideEntity(c.year, c.cpiIndex)
+        )
     }
 }

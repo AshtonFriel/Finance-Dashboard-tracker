@@ -31,6 +31,9 @@ import com.financedashboard.app.AppViewModel
 import com.financedashboard.app.ui.charts.DonutChart
 import com.financedashboard.app.ui.charts.Sparkline
 import com.financedashboard.app.ui.charts.fullCurrency
+import com.financedashboard.app.ui.theme.Fiscal
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import com.financedashboard.app.ui.theme.LocalChartColors
 import com.financedashboard.core.model.AccountType
 
@@ -67,6 +70,10 @@ fun AccountsScreen(vm: AppViewModel) {
             }
         }
 
+        RecurringChargesSection(vm)
+        TopMoversSection(vm)
+        TransactionBrowserSection(vm)
+
         val grouped = accounts.groupBy { it.type }
         val order = listOf(AccountType.CASH, AccountType.INVESTMENT, AccountType.DEBT, AccountType.ASSET, AccountType.UNKNOWN)
         for (type in order) {
@@ -90,6 +97,132 @@ fun AccountsScreen(vm: AppViewModel) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = chart.secondaryInk,
             )
+        }
+    }
+}
+
+@Composable
+private fun RecurringChargesSection(vm: AppViewModel) {
+    val charges by vm.recurringCharges.collectAsState()
+    val total by vm.recurringMonthlyTotal.collectAsState()
+    val active = charges.filter { !it.possiblyCancelled }
+    if (active.isEmpty()) return
+
+    SectionTitle("Recurring charges")
+    FiscalCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "${fullCurrency(total)}/mo",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Fiscal.Accent,
+                )
+                Text(
+                    "${active.size} recurring charges · ${fullCurrency(total * 12)}/yr",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Fiscal.TextMuted,
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        for (s in active.take(12)) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(s.merchant, style = MaterialTheme.typography.bodyMedium, color = Fiscal.TextPrimary)
+                    Text(
+                        "${s.cadence.label} · ${fullCurrency(s.typicalAmount)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Fiscal.TextMuted,
+                    )
+                }
+                Text("${fullCurrency(s.monthlyEquivalent)}/mo", style = MaterialTheme.typography.labelLarge, color = Fiscal.TextPrimary)
+            }
+        }
+        val cancelled = charges.filter { it.possiblyCancelled }
+        if (cancelled.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Possibly ended: ${cancelled.take(4).joinToString { it.merchant }}",
+                style = MaterialTheme.typography.labelSmall,
+                color = Fiscal.TextMuted,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TopMoversSection(vm: AppViewModel) {
+    val movers by vm.topMovers.collectAsState()
+    if (movers.isEmpty()) return
+    SectionTitle("Top movers (last full month vs prior)")
+    FiscalCard {
+        for (m in movers) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(m.category, style = MaterialTheme.typography.bodyMedium, color = Fiscal.TextPrimary, modifier = Modifier.weight(1f))
+                Text(fullCurrency(m.current), style = MaterialTheme.typography.labelMedium, color = Fiscal.TextSecondary)
+                Spacer(Modifier.width(10.dp))
+                // Spending up is bad (coral), down is good (accent).
+                Text(
+                    (if (m.delta >= 0) "▲ " else "▼ ") + fullCurrency(kotlin.math.abs(m.delta)),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (m.delta >= 0) Fiscal.Coral else Fiscal.Accent,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun TransactionBrowserSection(vm: AppViewModel) {
+    val query by vm.searchQuery.collectAsState()
+    val category by vm.searchCategory.collectAsState()
+    val results by vm.searchResults.collectAsState()
+    val spending by vm.spendingLastYear.collectAsState()
+
+    SectionTitle("Find a transaction")
+    FiscalCard {
+        androidx.compose.material3.OutlinedTextField(
+            value = query,
+            onValueChange = { vm.setSearchQuery(it) },
+            label = { Text("Search merchant or statement") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (spending.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (c in spending.take(8)) {
+                    androidx.compose.material3.FilterChip(
+                        selected = category == c.category,
+                        onClick = { vm.setSearchCategory(c.category) },
+                        label = { Text(c.category, style = MaterialTheme.typography.labelSmall) },
+                    )
+                }
+            }
+        }
+        if (query.isNotBlank() || category.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            if (results.isEmpty()) {
+                Text("No matches", style = MaterialTheme.typography.bodySmall, color = Fiscal.TextMuted)
+            }
+            for (t in results.take(50)) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(t.merchant, style = MaterialTheme.typography.bodyMedium, color = Fiscal.TextPrimary)
+                        Text(
+                            "${java.time.LocalDate.ofEpochDay(t.epochDay)} · ${t.category}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Fiscal.TextMuted,
+                        )
+                    }
+                    Text(
+                        fullCurrency(t.amount),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (t.amount < 0) Fiscal.TextPrimary else Fiscal.Accent,
+                    )
+                }
+            }
         }
     }
 }

@@ -53,6 +53,9 @@ interface BalanceDao {
     @Query("SELECT * FROM balances WHERE accountName = :account ORDER BY epochDay")
     fun forAccount(account: String): Flow<List<BalanceEntity>>
 
+    @Query("SELECT * FROM balances")
+    suspend fun allOnce(): List<BalanceEntity>
+
     @Insert
     suspend fun insertAll(balances: List<BalanceEntity>)
 
@@ -92,6 +95,23 @@ interface TransactionDao {
         """
     )
     fun expensesSince(sinceEpochDay: Long): Flow<List<TransactionEntity>>
+
+    @Query(
+        """
+        SELECT * FROM transactions
+        WHERE (:query = '' OR merchant LIKE '%' || :query || '%' OR statement LIKE '%' || :query || '%')
+          AND (:category = '' OR category = :category)
+        ORDER BY epochDay DESC LIMIT :limit
+        """
+    )
+    fun search(query: String, category: String, limit: Int): Flow<List<TransactionEntity>>
+
+    /** All expense transactions (for recurring-charge detection). */
+    @Query("SELECT * FROM transactions WHERE amount < 0")
+    fun allExpenses(): Flow<List<TransactionEntity>>
+
+    @Query("SELECT * FROM transactions")
+    suspend fun allOnce(): List<TransactionEntity>
 
     @Query("SELECT COUNT(*) FROM transactions")
     fun count(): Flow<Int>

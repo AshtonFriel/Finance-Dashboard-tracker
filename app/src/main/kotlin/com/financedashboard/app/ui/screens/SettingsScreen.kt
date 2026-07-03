@@ -48,6 +48,12 @@ fun SettingsScreen(vm: AppViewModel) {
         uri?.let { vm.requestImportTransactions(it) }
     }
     val csvTypes = arrayOf("text/csv", "text/comma-separated-values", "application/csv", "text/plain")
+    val ratesPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { vm.importRates(it) }
+    }
+    val backupPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { vm.requestRestore(it) }
+    }
 
     Column(
         Modifier
@@ -81,6 +87,79 @@ fun SettingsScreen(vm: AppViewModel) {
                     style = MaterialTheme.typography.labelSmall,
                     color = chart.mutedInk,
                 )
+            }
+        }
+
+        SectionTitle("Interest rates")
+        Card {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Bank exports don't include APRs. Import a small CSV with columns like " +
+                        "Account, APR, MinPayment to set real rates — matched to your debts by name, last-4, or lender.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = chart.secondaryInk,
+                )
+                Button(onClick = { ratesPicker.launch(csvTypes) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Import rates CSV")
+                }
+                val ratesStatus by vm.ratesImportStatus.collectAsState()
+                ratesStatus?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = chart.primaryInk) }
+                Text(
+                    "Tip: the Debts tab also suggests minimum payments inferred from your payment history.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = chart.mutedInk,
+                )
+            }
+        }
+
+        SectionTitle("Backup & restore")
+        Card {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Your database is encrypted, so use a backup file to move or safeguard data. " +
+                        "The backup is an unencrypted JSON — keep it somewhere safe.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = chart.secondaryInk,
+                )
+                Button(onClick = { vm.exportBackup() }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Back up data")
+                }
+                OutlinedButton(onClick = { backupPicker.launch(arrayOf("application/json", "text/plain", "*/*")) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Restore from backup")
+                }
+                val backupStatus by vm.backupStatus.collectAsState()
+                backupStatus?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = chart.primaryInk) }
+            }
+        }
+
+        SectionTitle("Notifications")
+        Card {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val notify by vm.notificationsEnabled.collectAsState()
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                    vm.setNotificationsEnabled(granted)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Switch(
+                        checked = notify,
+                        onCheckedChange = { on ->
+                            if (on && android.os.Build.VERSION.SDK_INT >= 33 &&
+                                androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.POST_NOTIFICATIONS)
+                                != android.content.pm.PackageManager.PERMISSION_GRANTED
+                            ) {
+                                permLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                vm.setNotificationsEnabled(on)
+                            }
+                        },
+                    )
+                    Text(
+                        "Weekly reminders: stale data, payoff milestones, emergency fund funded, net-worth highs",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
             }
         }
 
@@ -186,6 +265,20 @@ fun SettingsScreen(vm: AppViewModel) {
             },
             confirmButton = { TextButton(onClick = { vm.confirmPendingImport() }) { Text("Replace") } },
             dismissButton = { TextButton(onClick = { vm.cancelPendingImport() }) { Text("Cancel") } },
+        )
+    }
+
+    // Restore confirmation.
+    val pendingRestore by vm.pendingRestore.collectAsState()
+    pendingRestore?.let { pr ->
+        AlertDialog(
+            onDismissRequest = { vm.cancelRestore() },
+            title = { Text("Restore this backup?") },
+            text = {
+                Text("This replaces all current data with: ${pr.summary}. This cannot be undone.")
+            },
+            confirmButton = { TextButton(onClick = { vm.confirmRestore() }) { Text("Restore") } },
+            dismissButton = { TextButton(onClick = { vm.cancelRestore() }) { Text("Cancel") } },
         )
     }
 

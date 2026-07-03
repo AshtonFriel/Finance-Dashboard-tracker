@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
@@ -40,6 +41,11 @@ class SettingsStore(private val context: Context) {
         val futureRaisePct = doublePreferencesKey("inflation_future_raise_pct")
         val futureInflationPct = doublePreferencesKey("inflation_future_cpi_pct")
         val biometricLock = booleanPreferencesKey("security_biometric_lock")
+        val scenarios = stringPreferencesKey("debt_saved_scenarios")
+        val notificationsEnabled = booleanPreferencesKey("notify_enabled")
+        val notifiedPayoffPct = intPreferencesKey("notify_payoff_pct")
+        val notifiedEfFunded = booleanPreferencesKey("notify_ef_funded")
+        val notifiedNetWorthHigh = doublePreferencesKey("notify_networth_high")
     }
 
     // Record separator / field separator for serialized lists (never appear in user text).
@@ -140,4 +146,55 @@ class SettingsStore(private val context: Context) {
     // ---- Security ----
     val biometricLock: Flow<Boolean> = context.dataStore.data.map { it[Keys.biometricLock] ?: false }
     suspend fun setBiometricLock(v: Boolean) = context.dataStore.edit { it[Keys.biometricLock] = v }
+
+    // ---- Saved debt scenarios ----
+    data class SavedScenario(
+        val name: String,
+        val strategy: String,
+        val extra: Double,
+        val growthPct: Double,
+        val lumpSums: Map<java.time.YearMonth, Double>,
+    )
+
+    val scenarios: Flow<List<SavedScenario>> = context.dataStore.data.map { prefs ->
+        (prefs[Keys.scenarios] ?: "").split(RS).filter { it.isNotBlank() }.mapNotNull { rec ->
+            // name|strategy|extra|growth|month:amt;month:amt
+            val p = rec.split(FS)
+            if (p.size < 4) return@mapNotNull null
+            val extra = p[2].toDoubleOrNull() ?: return@mapNotNull null
+            val growth = p[3].toDoubleOrNull() ?: 0.0
+            val lumps = p.getOrNull(4).orEmpty().split(";").filter { it.isNotBlank() }.mapNotNull { l ->
+                val kv = l.split(":")
+                val m = runCatching { java.time.YearMonth.parse(kv[0]) }.getOrNull()
+                val amt = kv.getOrNull(1)?.toDoubleOrNull()
+                if (m != null && amt != null) m to amt else null
+            }.toMap()
+            SavedScenario(p[0], p[1], extra, growth, lumps)
+        }
+    }
+
+    suspend fun setScenarios(v: List<SavedScenario>) = context.dataStore.edit { prefs ->
+        prefs[Keys.scenarios] = v.joinToString(RS.toString()) { s ->
+            val lumps = s.lumpSums.entries.joinToString(";") { "${it.key}:${it.value}" }
+            listOf(s.name, s.strategy, s.extra.toString(), s.growthPct.toString(), lumps).joinToString(FS.toString())
+        }
+    }
+
+    // ---- Notifications ----
+    val notificationsEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.notificationsEnabled] ?: false }
+    suspend fun setNotificationsEnabled(v: Boolean) = context.dataStore.edit { it[Keys.notificationsEnabled] = v }
+
+    suspend fun notificationsEnabledNow(): Boolean = notificationsEnabled.first()
+
+    val notifiedPayoffPct: Flow<Int> = context.dataStore.data.map { it[Keys.notifiedPayoffPct] ?: 0 }
+    suspend fun setNotifiedPayoffPct(v: Int) = context.dataStore.edit { it[Keys.notifiedPayoffPct] = v }
+    suspend fun getNotifiedPayoffPct(): Int = notifiedPayoffPct.first()
+
+    suspend fun getNotifiedEfFunded(): Boolean =
+        context.dataStore.data.map { it[Keys.notifiedEfFunded] ?: false }.first()
+    suspend fun setNotifiedEfFunded(v: Boolean) = context.dataStore.edit { it[Keys.notifiedEfFunded] = v }
+
+    suspend fun getNotifiedNetWorthHigh(): Double =
+        context.dataStore.data.map { it[Keys.notifiedNetWorthHigh] ?: 0.0 }.first()
+    suspend fun setNotifiedNetWorthHigh(v: Double) = context.dataStore.edit { it[Keys.notifiedNetWorthHigh] = v }
 }

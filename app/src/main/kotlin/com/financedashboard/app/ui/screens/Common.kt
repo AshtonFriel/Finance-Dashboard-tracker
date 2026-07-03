@@ -85,13 +85,18 @@ fun NumberEntryDialog(
     fields: List<Pair<String, String>>,
     onConfirm: (List<Double>) -> Unit,
     onDismiss: () -> Unit,
+    note: String? = null,
 ) {
+    val chart = LocalChartColors.current
     var values by rememberSaveable(fields) { mutableStateOf(fields.map { it.second }) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column {
+                note?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = chart.secondaryInk, modifier = Modifier.padding(bottom = 6.dp))
+                }
                 fields.forEachIndexed { i, (label, _) ->
                     OutlinedTextField(
                         value = values[i],

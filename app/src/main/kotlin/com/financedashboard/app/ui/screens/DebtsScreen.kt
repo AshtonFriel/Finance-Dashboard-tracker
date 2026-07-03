@@ -62,8 +62,12 @@ fun DebtsScreen(vm: AppViewModel) {
     val comparison by vm.strategyComparison.collectAsState()
     val extra by vm.extraMonthly.collectAsState()
     val strategy by vm.strategy.collectAsState()
+    val savedScenarios by vm.savedScenarios.collectAsState()
+    val compareName by vm.compareScenario.collectAsState()
+    val comparisonPlan by vm.comparisonPlan.collectAsState()
     var editing by remember { mutableStateOf<DebtInput?>(null) }
     var scheduleFor by remember { mutableStateOf<String?>(null) }
+    var showSaveScenario by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -428,11 +432,26 @@ fun DebtsScreen(vm: AppViewModel) {
                     val efByMonth = e.efSeries.toMap()
                     Series("Emergency fund", months.map { efByMonth[it] ?: e.efTargetAmount }, Fiscal.Accent)
                 }
+                val comparison = comparisonPlan?.let { cp ->
+                    val cpByMonth = cp.combinedBalanceByMonth.toMap()
+                    Series("Saved: ${compareName.orEmpty()}", months.map { cpByMonth[it] ?: 0.0 }, Fiscal.Sky, dashed = true)
+                }
                 StackedAreaChart(
                     series = stackSeries,
-                    overlays = listOfNotNull(overlay, efOverlay),
+                    overlays = listOfNotNull(overlay, efOverlay, comparison),
                     xLabel = { i -> months.getOrNull(i)?.format(monthFmt) ?: "" },
                 )
+                comparisonPlan?.let { cp ->
+                    val monthsDelta = cp.combinedBalanceByMonth.size - activePlan.combinedBalanceByMonth.size
+                    val interestDelta = cp.totalInterest - activePlan.totalInterest
+                    Text(
+                        "vs saved “${compareName}”: current plan is " +
+                            (if (monthsDelta >= 0) "${monthsDelta} months faster, ${fullCurrency(interestDelta)} less interest"
+                            else "${-monthsDelta} months slower, ${fullCurrency(-interestDelta)} more interest"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (monthsDelta >= 0) Fiscal.Accent else Fiscal.Amber,
+                    )
+                }
                 activePlan.payoffMonth?.let {
                     Text(
                         "Debt-free ${it.format(monthFmt)} · total interest ${fullCurrency(activePlan.totalInterest)}",
@@ -457,6 +476,40 @@ fun DebtsScreen(vm: AppViewModel) {
                         ),
                         weights,
                     )
+                }
+            }
+
+            Eyebrow("Scenarios")
+            FiscalCard {
+                Text(
+                    "Save the current strategy, extra payment, growth, and lump sums under a name, then overlay it " +
+                        "on the chart to compare against your live settings.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Fiscal.TextMuted,
+                )
+                Spacer(Modifier.height(6.dp))
+                androidx.compose.material3.TextButton(onClick = { showSaveScenario = true }) {
+                    Text("Save current as scenario", color = Fiscal.Accent)
+                }
+                for (sc in savedScenarios) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(sc.name, style = MaterialTheme.typography.bodyMedium, color = Fiscal.TextPrimary)
+                            Text(
+                                "${sc.strategy.lowercase().replaceFirstChar { it.uppercase() }} · +${fullCurrency(sc.extra)}/mo" +
+                                    (if (sc.growthPct > 0) " · grows ${sc.growthPct}%/yr" else "") +
+                                    (if (sc.lumpSums.isNotEmpty()) " · ${sc.lumpSums.size} lump" else ""),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Fiscal.TextMuted,
+                            )
+                        }
+                        androidx.compose.material3.TextButton(onClick = { vm.setCompareScenario(sc.name) }) {
+                            Text(if (compareName == sc.name) "Hide" else "Compare", color = Fiscal.Sky)
+                        }
+                        androidx.compose.material3.TextButton(onClick = { vm.deleteScenario(sc.name) }) {
+                            Text("✕", color = Fiscal.TextMuted)
+                        }
+                    }
                 }
             }
 
@@ -524,18 +577,47 @@ fun DebtsScreen(vm: AppViewModel) {
     }
 
     editing?.let { d ->
+        val inferred by vm.inferredPayments.collectAsState()
+        val suggestion = inferred[d.accountName]
         NumberEntryDialog(
             title = d.accountName,
             fields = listOf(
                 "APR %" to d.aprPct.toString(),
-                "Monthly payment (\$)" to d.minPayment.toString(),
+                "Monthly payment (\$)" to (suggestion?.monthlyPayment ?: d.minPayment).let { "%.0f".format(it) },
                 "Include in plan (1 = yes, 0 = no)" to if (d.includeInPlan) "1" else "0",
             ),
+            note = suggestion?.let {
+                "Suggested payment ${fullCurrency(it.monthlyPayment)}/mo from ${it.monthsObserved} months of your payment history — edit if it isn't your real minimum."
+            },
             onConfirm = { (apr, payment, include) ->
                 vm.setDebtAssumption(d.accountName, apr, payment, include >= 0.5)
                 editing = null
             },
             onDismiss = { editing = null },
+        )
+    }
+
+    if (showSaveScenario) {
+        var scenarioName by remember { mutableStateOf("") }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showSaveScenario = false },
+            title = { Text("Save scenario") },
+            text = {
+                androidx.compose.material3.OutlinedTextField(
+                    value = scenarioName,
+                    onValueChange = { scenarioName = it },
+                    label = { Text("Name (e.g. Aggressive +\$500)") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    if (scenarioName.isNotBlank()) { vm.saveCurrentScenario(scenarioName); showSaveScenario = false }
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showSaveScenario = false }) { Text("Cancel") }
+            },
         )
     }
 }

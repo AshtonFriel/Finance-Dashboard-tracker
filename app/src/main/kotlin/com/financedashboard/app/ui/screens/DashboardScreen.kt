@@ -22,6 +22,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -174,7 +177,11 @@ fun DashboardScreen(vm: AppViewModel, navController: NavHostController) {
 
         EmergencyFundSection(vm)
 
+        SinkingFundsSection(vm)
+
         CashFlowSection(vm)
+
+        AttributionSection(vm)
 
         MilestonesSection(vm)
 
@@ -437,6 +444,120 @@ private fun MilestonesSection(vm: AppViewModel) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SinkingFundsSection(vm: AppViewModel) {
+    val funds by vm.sinkingFunds.collectAsState()
+    var showAdd by remember { mutableStateOf(false) }
+
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+        Eyebrow("Sinking funds", modifier = Modifier.weight(1f))
+        androidx.compose.material3.TextButton(onClick = { showAdd = true }) { Text("Add", color = Fiscal.Accent) }
+    }
+    if (funds.isEmpty()) {
+        FiscalCard {
+            Text(
+                "Reserve for lumpy expenses — car maintenance, insurance, holidays. Each fund tracks a target " +
+                    "and a monthly set-aside, like the emergency fund.",
+                style = MaterialTheme.typography.bodySmall, color = Fiscal.TextSecondary,
+            )
+        }
+    }
+    for (f in funds) {
+        val progress = if (f.target > 0) (f.current / f.target).coerceIn(0.0, 1.0) else 0.0
+        val monthsLeft = if (f.monthly > 0 && f.current < f.target) Math.ceil((f.target - f.current) / f.monthly).toInt() else 0
+        FiscalCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(f.name, style = MaterialTheme.typography.titleSmall, color = Fiscal.TextPrimary)
+                    Text(
+                        "${fullCurrency(f.current)} of ${fullCurrency(f.target)}" +
+                            if (monthsLeft > 0) " · funded in ${monthsLeft} mo at ${fullCurrency(f.monthly)}/mo" else " · funded ✓",
+                        style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted,
+                    )
+                }
+                Text("${(progress * 100).toInt()}%", style = MaterialTheme.typography.titleMedium, color = Fiscal.TextPrimary)
+                androidx.compose.material3.TextButton(onClick = { vm.removeSinkingFund(f.name) }) { Text("✕", color = Fiscal.TextMuted) }
+            }
+            Spacer(Modifier.height(8.dp))
+            FiscalBar(progress = progress.toFloat())
+        }
+    }
+    if (showAdd) {
+        var name by remember { mutableStateOf("") }
+        var target by remember { mutableStateOf("") }
+        var current by remember { mutableStateOf("") }
+        var monthly by remember { mutableStateOf("") }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showAdd = false },
+            title = { Text("Add sinking fund") },
+            text = {
+                Column {
+                    androidx.compose.material3.OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true)
+                    androidx.compose.material3.OutlinedTextField(target, { target = it }, label = { Text("Target ($)") }, singleLine = true, modifier = Modifier.padding(top = 6.dp))
+                    androidx.compose.material3.OutlinedTextField(current, { current = it }, label = { Text("Current ($)") }, singleLine = true, modifier = Modifier.padding(top = 6.dp))
+                    androidx.compose.material3.OutlinedTextField(monthly, { monthly = it }, label = { Text("Monthly ($)") }, singleLine = true, modifier = Modifier.padding(top = 6.dp))
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    val t = target.replace(",", "").replace("$", "").toDoubleOrNull()
+                    if (name.isNotBlank() && t != null && t > 0) {
+                        vm.addSinkingFund(name.trim(), t, current.replace(",", "").replace("$", "").toDoubleOrNull() ?: 0.0, monthly.replace(",", "").replace("$", "").toDoubleOrNull() ?: 0.0)
+                        showAdd = false
+                    }
+                }) { Text("Save") }
+            },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { showAdd = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun AttributionSection(vm: AppViewModel) {
+    val attr by vm.attribution.collectAsState()
+    val a = attr ?: return
+    if (kotlin.math.abs(a.totalChange) < 1.0) return
+
+    Eyebrow("What moved your net worth (last 12 months)", modifier = Modifier.padding(top = 6.dp))
+    FiscalCard {
+        Text(
+            "${signedCurrency(a.totalChange)} net worth change",
+            style = MaterialTheme.typography.titleMedium,
+            color = if (a.totalChange >= 0) Fiscal.Accent else Fiscal.Coral,
+        )
+        Spacer(Modifier.height(10.dp))
+        val rows = listOf(
+            Triple("Saved from income", a.cashSaved, Fiscal.Accent),
+            Triple("Market growth", a.marketChange, Fiscal.Sky),
+            Triple("Debt paid down", a.debtPrincipalPaid, Fiscal.Coral),
+            Triple("Asset revaluation", a.assetRevaluation, Fiscal.Amber),
+            Triple("Unexplained (data gaps)", a.residual, Fiscal.TextMuted),
+        ).filter { kotlin.math.abs(it.second) > 1.0 }
+        val maxMag = rows.maxOfOrNull { kotlin.math.abs(it.second) } ?: 1.0
+        for ((label, value, color) in rows) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 3.dp)) {
+                Text(label, style = MaterialTheme.typography.bodySmall, color = Fiscal.TextSecondary, modifier = Modifier.weight(1f))
+                Box(
+                    Modifier
+                        .weight(1.4f)
+                        .height(10.dp)
+                        .fillMaxWidth(),
+                ) {
+                    FiscalBar(progress = (kotlin.math.abs(value) / maxMag).toFloat(), height = 10.dp, color = color, gradient = false)
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(signedCurrency(value), style = MaterialTheme.typography.labelMedium, color = Fiscal.TextPrimary)
+            }
+        }
+        Text(
+            "Approximate: contributions are inferred from transfers, and the residual absorbs anything the data can't attribute.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Fiscal.TextMuted,
+            modifier = Modifier.padding(top = 6.dp),
+        )
     }
 }
 

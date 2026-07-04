@@ -90,6 +90,26 @@ fun SettingsScreen(vm: AppViewModel) {
             }
         }
 
+        val health by vm.importHealth.collectAsState()
+        health?.takeIf { !it.isClean }?.let { report ->
+            SectionTitle("Data health")
+            Card {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "${report.warnings} ${if (report.warnings == 1) "issue" else "issues"} found in your imported data",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = chart.seriesYellow,
+                    )
+                    for (f in report.findings.take(6)) {
+                        Column {
+                            Text(f.title, style = MaterialTheme.typography.bodyMedium, color = chart.primaryInk)
+                            Text(f.detail, style = MaterialTheme.typography.labelSmall, color = chart.secondaryInk)
+                        }
+                    }
+                }
+            }
+        }
+
         SectionTitle("Interest rates")
         Card {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -126,6 +146,9 @@ fun SettingsScreen(vm: AppViewModel) {
                 }
                 OutlinedButton(onClick = { backupPicker.launch(arrayOf("application/json", "text/plain", "*/*")) }, modifier = Modifier.fillMaxWidth()) {
                     Text("Restore from backup")
+                }
+                OutlinedButton(onClick = { vm.exportAnalytics() }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Export analytics CSV")
                 }
                 val backupStatus by vm.backupStatus.collectAsState()
                 backupStatus?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = chart.primaryInk) }

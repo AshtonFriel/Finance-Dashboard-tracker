@@ -187,6 +187,8 @@ private fun AppScaffold(vm: AppViewModel = viewModel()) {
             composable("invest") { InvestScreen(vm) }
             composable("more") { MoreScreen(navController) }
             composable("accounts") { AccountsScreen(vm) }
+            composable("decisions") { com.financedashboard.app.ui.screens.DecisionsScreen(vm) }
+            composable("yearreview") { com.financedashboard.app.ui.screens.YearReviewScreen(vm) }
             composable("settings") { SettingsScreen(vm) }
         }
     }
@@ -212,6 +214,28 @@ private fun MoreScreen(navController: NavHostController) {
                         style = MaterialTheme.typography.bodySmall,
                         color = Fiscal.TextSecondary,
                     )
+                }
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Fiscal.TextMuted)
+            }
+        }
+        FiscalCard(onClick = { navController.navigate("decisions") }) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                GlyphTile(Fiscal.Accent, Glyph.TRIANGLE)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Decisions", style = MaterialTheme.typography.titleSmall, color = Fiscal.TextPrimary)
+                    Text("Pay-down vs invest, refinance, sensitivity", style = MaterialTheme.typography.bodySmall, color = Fiscal.TextSecondary)
+                }
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Fiscal.TextMuted)
+            }
+        }
+        FiscalCard(onClick = { navController.navigate("yearreview") }) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                GlyphTile(Fiscal.Amber, Glyph.DIAMOND)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Year in Review", style = MaterialTheme.typography.titleSmall, color = Fiscal.TextPrimary)
+                    Text("Annual summary with on-device PDF export", style = MaterialTheme.typography.bodySmall, color = Fiscal.TextSecondary)
                 }
                 Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Fiscal.TextMuted)
             }

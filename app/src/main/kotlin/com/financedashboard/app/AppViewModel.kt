@@ -9,6 +9,7 @@ import com.financedashboard.app.data.FinanceRepository
 import com.financedashboard.app.data.db.AppDatabase
 import com.financedashboard.app.data.db.DebtAssumptionEntity
 import com.financedashboard.core.engine.AmortizationEngine
+import com.financedashboard.core.engine.IncomeAggregator
 import com.financedashboard.core.engine.InflationEngine
 import com.financedashboard.core.engine.InvestmentEngine
 import com.financedashboard.core.engine.PayoffStrategy
@@ -771,6 +772,58 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun cancelRestore() { pendingRestore.value = null }
+
+    fun exportAnalytics() = safeLaunch {
+        val (header, rows) = repo.analyticsRows()
+        com.financedashboard.app.data.TableExporter.shareCsv(getApplication(), "finance-analytics.csv", header, rows)
+    }
+
+    // ---- Year in Review ----
+    data class YearReview(
+        val year: Int,
+        val income: Double,
+        val spending: Double,
+        val savingsRate: Double,
+        val netWorthStart: Double,
+        val netWorthEnd: Double,
+        val attribution: com.financedashboard.core.engine.AttributionEngine.Attribution?,
+        val topCategories: List<Pair<String, Double>>,
+    )
+
+    val reviewYear = MutableStateFlow(java.time.LocalDate.now().year - 1)
+    fun setReviewYear(y: Int) { reviewYear.value = y }
+
+    val yearReview = combine(
+        reviewYear, repo.allBalanceRecords, repo.allTransactionRecords, repo.accountTypeOf,
+    ) { year, balances, txs, typeOf ->
+        if (balances.isEmpty()) return@combine null
+        val from = java.time.LocalDate.of(year, 1, 1)
+        val to = java.time.LocalDate.of(year, 12, 31)
+        val yearTxs = txs.filter { it.date.year == year }
+        val income = yearTxs.filter { it.category in IncomeAggregator.PAYCHECK_CATEGORIES && it.amount > 0 }.sumOf { it.amount }
+        val excluded = setOf("Transfer", "Credit Card Payment", "Loan Repayment")
+        val spendTxs = yearTxs.filter { it.amount < 0 && it.category !in excluded }
+        val spending = spendTxs.sumOf { -it.amount }
+        val nw = com.financedashboard.core.engine.NetWorthAggregator.monthlySeries(balances)
+        val nwStart = nw.firstOrNull { it.month.year == year }?.net ?: 0.0
+        val nwEnd = nw.lastOrNull { it.month.year == year }?.net ?: nwStart
+        YearReview(
+            year = year,
+            income = income,
+            spending = spending,
+            savingsRate = if (income > 0) (income - spending) / income * 100 else 0.0,
+            netWorthStart = nwStart,
+            netWorthEnd = nwEnd,
+            attribution = com.financedashboard.core.engine.AttributionEngine.attribute(balances, txs, typeOf, from, to),
+            topCategories = spendTxs.groupBy { it.category }.mapValues { (_, t) -> t.sumOf { -it.amount } }
+                .entries.sortedByDescending { it.value }.take(6).map { it.key to it.value },
+        )
+    }.flowOn(Dispatchers.Default).asState(null)
+
+    fun exportYearReviewPdf() = safeLaunch {
+        val review = yearReview.value ?: return@safeLaunch
+        com.financedashboard.app.data.YearReviewPdf.export(getApplication(), review)
+    }
 
     // ---- Notifications ----
     val notificationsEnabled = settings.notificationsEnabled.asState(false)

@@ -1,6 +1,9 @@
 package com.financedashboard.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -151,6 +154,38 @@ fun InflationScreen(vm: AppViewModel) {
                     style = MaterialTheme.typography.bodySmall,
                     color = Fiscal.TextSecondary,
                 )
+            }
+
+            // Paycheck wedge: gross vs take-home.
+            val wedges by vm.paycheckWedge.collectAsState()
+            wedges.lastOrNull()?.let { w ->
+                FiscalCard {
+                    Eyebrow("Take-home wedge ${w.year}")
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "${w.wedgePct.toInt()}% of gross never reached your checking account",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Fiscal.Amber,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    // Stacked bar: take-home / retirement / tax & other.
+                    val takeHome = w.net.coerceAtLeast(0.0)
+                    Row(
+                        Modifier.fillMaxWidth().height(14.dp).clip(RoundedCornerShape(99.dp)),
+                    ) {
+                        WedgeSeg(takeHome / w.gross, Fiscal.Accent)
+                        if (w.retirement > 0) { Spacer(Modifier.width(2.dp)); WedgeSeg(w.retirement / w.gross, Fiscal.Sky) }
+                        Spacer(Modifier.width(2.dp)); WedgeSeg(w.taxAndOther / w.gross, Fiscal.Coral)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("Take-home ${fullCurrency(takeHome)} · Retirement ${fullCurrency(w.retirement)} · Tax & other ${fullCurrency(w.taxAndOther)}",
+                        style = MaterialTheme.typography.labelSmall, color = Fiscal.TextSecondary)
+                    Text(
+                        "Net deposits include 401(k) and benefits, not just tax — this is a take-home wedge. " +
+                            "Enter your annual 401(k) to split it out.",
+                        style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted,
+                    )
+                }
             }
 
             // Raises vs CPI.
@@ -401,6 +436,13 @@ fun InflationScreen(vm: AppViewModel) {
             },
         )
     }
+}
+
+@Composable
+private fun RowScope.WedgeSeg(fraction: Double, color: androidx.compose.ui.graphics.Color) {
+    androidx.compose.foundation.layout.Box(
+        Modifier.weight(fraction.toFloat().coerceAtLeast(0.001f)).height(14.dp).background(color),
+    )
 }
 
 @Composable

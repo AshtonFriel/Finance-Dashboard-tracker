@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
@@ -52,19 +53,42 @@ fun AccountsScreen(vm: AppViewModel) {
     ) {
         Text("Accounts", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
 
+        val owners by vm.owners.collectAsState()
+        val selectedOwner by vm.selectedOwner.collectAsState()
+        val ownerSpending by vm.ownerSpending.collectAsState()
+        val shownSpending = if (selectedOwner.isBlank()) spending else ownerSpending
         if (spending.isNotEmpty()) {
             SectionTitle("Spending by category (last 12 months)")
+            if (owners.size > 1) {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    androidx.compose.material3.FilterChip(
+                        selected = selectedOwner.isBlank(),
+                        onClick = { vm.setSelectedOwner("") },
+                        label = { Text("Everyone") },
+                    )
+                    for (o in owners) {
+                        androidx.compose.material3.FilterChip(
+                            selected = selectedOwner == o,
+                            onClick = { vm.setSelectedOwner(o) },
+                            label = { Text(o) },
+                        )
+                    }
+                }
+            }
             Card {
                 Column(Modifier.padding(12.dp)) {
-                    val top = spending.take(7)
-                    val other = spending.drop(7).sumOf { it.total }
+                    val top = shownSpending.take(7)
+                    val other = shownSpending.drop(7).sumOf { it.total }
                     val slices = top.mapIndexed { i, c ->
                         Triple(c.category, c.total, chart.categorical[i % chart.categorical.size])
                     } + if (other > 0) listOf(Triple("Other", other, chart.mutedInk)) else emptyList()
                     DonutChart(
                         slices = slices,
-                        centerLabel = "12-mo spend",
-                        centerValue = com.financedashboard.app.ui.charts.compactCurrency(spending.sumOf { it.total }),
+                        centerLabel = if (selectedOwner.isBlank()) "12-mo spend" else selectedOwner,
+                        centerValue = com.financedashboard.app.ui.charts.compactCurrency(shownSpending.sumOf { it.total }),
                     )
                 }
             }
@@ -108,6 +132,7 @@ private fun RecurringChargesSection(vm: AppViewModel) {
     val active = charges.filter { !it.possiblyCancelled }
     if (active.isEmpty()) return
 
+    val hikes by vm.priceHikes.collectAsState()
     SectionTitle("Recurring charges")
     FiscalCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -124,15 +149,27 @@ private fun RecurringChargesSection(vm: AppViewModel) {
                 )
             }
         }
+        if (hikes.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "↑ Price increases: " + hikes.take(3).joinToString(", ") {
+                    "${it.merchant} +${(it.priceChangePct * 100).toInt()}%"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = Fiscal.Coral,
+            )
+        }
         Spacer(Modifier.height(8.dp))
         for (s in active.take(12)) {
+            val hiked = hikes.any { it.merchant == s.merchant }
             Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(s.merchant, style = MaterialTheme.typography.bodyMedium, color = Fiscal.TextPrimary)
                     Text(
-                        "${s.cadence.label} · ${fullCurrency(s.typicalAmount)}",
+                        "${s.cadence.label} · ${fullCurrency(s.typicalAmount)}" +
+                            if (hiked) "  ·  was ${fullCurrency(s.earliestAmount)}" else "",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Fiscal.TextMuted,
+                        color = if (hiked) Fiscal.Coral else Fiscal.TextMuted,
                     )
                 }
                 Text("${fullCurrency(s.monthlyEquivalent)}/mo", style = MaterialTheme.typography.labelLarge, color = Fiscal.TextPrimary)

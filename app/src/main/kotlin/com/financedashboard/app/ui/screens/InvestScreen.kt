@@ -334,6 +334,68 @@ fun InvestScreen(vm: AppViewModel) {
             }
 
             // Holdings.
+            // FIRE / coast-FIRE.
+            val fire by vm.fire.collectAsState()
+            val retYears by vm.retirementYears.collectAsState()
+            fire?.let { f ->
+                Eyebrow("Financial independence")
+                FiscalCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("FIRE number", style = MaterialTheme.typography.bodySmall, color = Fiscal.TextSecondary)
+                            Text(compactCurrency(f.fireNumber), style = MaterialTheme.typography.titleLarge, color = Fiscal.TextPrimary)
+                        }
+                        Text("${f.progressPct.toInt()}%", style = MaterialTheme.typography.titleLarge, color = Fiscal.Accent)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    FiscalBar(progress = (f.progressPct / 100).toFloat(), height = 10.dp)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        buildString {
+                            append("25× your ${compactCurrency(f.annualSpending)}/yr spending. ")
+                            append(if (f.hasCoasted) "You've already coasted — no more contributions needed to hit it by retirement. "
+                                   else "Coast number: ${compactCurrency(f.coastNumber)} (invest this once and stop). ")
+                            f.yearsToFire?.let { append("On track in ~$it years at current saving.") }
+                        },
+                        style = MaterialTheme.typography.labelSmall, color = Fiscal.TextSecondary,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Retire in", style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted)
+                        for (y in listOf(10, 15, 20, 25, 30)) {
+                            FilterChip(selected = retYears == y, onClick = { vm.setRetirementYears(y) }, label = { Text("${y}y") })
+                        }
+                    }
+                }
+            }
+
+            // Crypto cost basis.
+            val lots by vm.cryptoLots.collectAsState()
+            lots?.let { r ->
+                Eyebrow("Crypto cost basis")
+                FiscalCard {
+                    Text(
+                        "Est. cost basis ${fullCurrency(r.remainingCostBasis)} on ${"%.4f".format(r.remainingUnits)} units held",
+                        style = MaterialTheme.typography.bodyMedium, color = Fiscal.TextPrimary,
+                    )
+                    if (r.realized.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Realized gains: ${signedCurrency(r.realizedGain)} across ${r.realized.size} sells",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (r.realizedGain >= 0) Fiscal.Accent else Fiscal.Coral)
+                        for ((yr, g) in com.financedashboard.core.engine.CryptoLotEngine.realizedByYear(r).toSortedMap()) {
+                            Text("  $yr: ${signedCurrency(g)}", style = MaterialTheme.typography.labelSmall, color = Fiscal.TextSecondary)
+                        }
+                    }
+                    Text(
+                        "Parsed from exchange transaction memos (FIFO). Only covers holdings whose buys carry per-unit " +
+                            "detail — manually-tracked balances aren't included.",
+                        style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+
             Eyebrow("Holdings")
             for (h in holdings) {
                 FiscalCard {

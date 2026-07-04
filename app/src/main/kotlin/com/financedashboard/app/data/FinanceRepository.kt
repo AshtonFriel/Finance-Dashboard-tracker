@@ -307,6 +307,33 @@ class FinanceRepository(private val db: AppDatabase) {
         )
     }
 
+    /** A wide monthly analytics table (month × derived metric) for spreadsheet use. */
+    suspend fun analyticsRows(): Pair<List<String>, List<List<String>>> {
+        val nw = com.financedashboard.core.engine.NetWorthAggregator.monthlySeries(allBalanceRecords.first())
+        val expenses = db.transactionDao().allFlow().first()
+        val incomeCats = IncomeAggregator.PAYCHECK_CATEGORIES
+        fun monthKey(epochDay: Long) = YearMonth.from(LocalDate.ofEpochDay(epochDay))
+        val spendByMonth = expenses.filter {
+            it.amount < 0 && it.category !in setOf("Transfer", "Credit Card Payment", "Loan Repayment")
+        }.groupBy { monthKey(it.epochDay) }.mapValues { (_, t) -> t.sumOf { -it.amount } }
+        val incomeByMonth = expenses.filter { it.category in incomeCats && it.amount > 0 }
+            .groupBy { monthKey(it.epochDay) }.mapValues { (_, t) -> t.sumOf { it.amount } }
+
+        val header = listOf("Month", "Assets", "Debts", "NetWorth", "Income", "Spending", "NetCashFlow", "SavingsRatePct")
+        val rows = nw.map { m ->
+            val income = incomeByMonth[m.month] ?: 0.0
+            val spend = spendByMonth[m.month] ?: 0.0
+            val savings = if (income > 0) ((income - spend) / income * 100) else 0.0
+            listOf(
+                m.month.toString(),
+                "%.2f".format(m.assets), "%.2f".format(m.debts), "%.2f".format(m.net),
+                "%.2f".format(income), "%.2f".format(spend), "%.2f".format(income - spend),
+                "%.1f".format(savings),
+            )
+        }
+        return header to rows
+    }
+
     suspend fun restoreBackup(backup: Backup) {
         db.balanceDao().replaceAll(
             backup.balances.map {

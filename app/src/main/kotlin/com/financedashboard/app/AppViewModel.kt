@@ -555,6 +555,100 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         )
     }.asState(null)
 
+    // ---- Import health / data quality ----
+    val importHealth = combine(
+        repo.allBalanceRecords, repo.allTransactionRecords, repo.accountTypeOf,
+    ) { balances, txs, typeOf ->
+        if (balances.isEmpty() && txs.isEmpty()) null
+        else com.financedashboard.core.engine.ImportHealthEngine.analyze(balances, txs, typeOf)
+    }.flowOn(Dispatchers.Default).asState(null)
+
+    // ---- Subscription price hikes ----
+    val priceHikes = repo.recurringCharges.map {
+        com.financedashboard.core.engine.RecurringDetector.priceHikes(it)
+    }.asState(emptyList())
+
+    // ---- Paycheck wedge ----
+    val retirementContribByYear = settings.retirementContribByYear.asState(emptyMap())
+    val paycheckWedge = combine(incomeByYear, derivedNetIncome, retirementContribByYear) { gross, net, retire ->
+        com.financedashboard.core.engine.PaycheckWedgeEngine.compute(gross, net, retire)
+    }.asState(emptyList())
+    fun setRetirementContrib(year: Int, amount: Double) = safeLaunch { settings.setRetirementContrib(year, amount) }
+
+    // ---- Household split by owner ----
+    val owners = repo.owners.asState(emptyList())
+    val selectedOwner = MutableStateFlow("")
+    fun setSelectedOwner(v: String) { selectedOwner.value = if (selectedOwner.value == v) "" else v }
+    @Suppress("OPT_IN_USAGE")
+    val ownerSpending = selectedOwner.flatMapLatest { owner ->
+        repo.spendingByOwner(owner, java.time.LocalDate.now().minusMonths(12))
+    }.asState(emptyList())
+
+    // ---- Net-worth attribution (trailing 12 months) ----
+    val attribution = combine(repo.allBalanceRecords, repo.allTransactionRecords, repo.accountTypeOf) { balances, txs, typeOf ->
+        if (balances.isEmpty()) null
+        else {
+            val to = java.time.LocalDate.now()
+            val from = to.minusYears(1)
+            com.financedashboard.core.engine.AttributionEngine.attribute(balances, txs, typeOf, from, to)
+        }
+    }.flowOn(Dispatchers.Default).asState(null)
+
+    // ---- Crypto cost basis ----
+    val cryptoLots = repo.allTransactionRecords.map { txs ->
+        val trades = com.financedashboard.core.engine.CryptoLotEngine.parseTrades(txs)
+        if (trades.isEmpty()) null else com.financedashboard.core.engine.CryptoLotEngine.account(trades)
+    }.flowOn(Dispatchers.Default).asState(null)
+
+    // ---- FIRE ----
+    val retirementYears = settings.retirementYears.asState(25)
+    val withdrawalRatePct = settings.withdrawalRatePct.asState(4.0)
+    val marginalTaxPct = settings.marginalTaxPct.asState(0.0)
+    fun setRetirementYears(v: Int) = safeLaunch { settings.setRetirementYears(v) }
+    fun setWithdrawalRatePct(v: Double) = safeLaunch { settings.setWithdrawalRatePct(v) }
+    fun setMarginalTaxPct(v: Double) = safeLaunch { settings.setMarginalTaxPct(v) }
+
+    val fire = combine(
+        investmentAccounts, avgMonthlyExpenses, monthlyContribution, expectedReturnPct,
+        combine(retirementYears, withdrawalRatePct, assumedInflationPct) { y, w, infl -> Triple(y, w, infl) },
+    ) { accs, monthlyExp, contrib, expected, (years, wr, infl) ->
+        val annualSpending = monthlyExp * 12
+        if (annualSpending <= 0) null
+        else com.financedashboard.core.engine.FireEngine.compute(
+            annualSpending = annualSpending,
+            currentPortfolio = accs.sumOf { it.latestBalance },
+            monthlyContribution = contrib,
+            realReturnPct = (expected - infl).coerceAtLeast(0.0),
+            yearsToRetirement = years,
+            withdrawalRatePct = wr,
+        )
+    }.flowOn(Dispatchers.Default).asState(null)
+
+    // ---- Extra-dollar optimizer ----
+    val optimizerResult = combine(debtInputs, extraMonthly, expectedReturnPct, marginalTaxPct) { inputs, extra, ret, tax ->
+        val debts = inputs.filter { it.includeInPlan }.map { Debt(it.accountName, it.balance, it.aprPct, it.minPayment) }
+        val amount = if (extra > 0) extra else 500.0
+        if (debts.isEmpty()) null
+        else com.financedashboard.core.engine.ExtraDollarOptimizer.compare(debts, amount, ret, 20, YearMonth.now(), tax)
+    }.flowOn(Dispatchers.Default).asState(null)
+
+    // ---- Refinance calculator (per-debt, on demand) ----
+    fun refinance(
+        balance: Double, currentApr: Double, newApr: Double, payment: Double, fees: Double, newTermMonths: Int?,
+    ) = com.financedashboard.core.engine.RefinanceEngine.compare(
+        balance, currentApr, newApr, payment, fees, YearMonth.now(), newTermMonths,
+    )
+
+    // ---- Sinking funds ----
+    val sinkingFunds = settings.sinkingFunds.asState(emptyList())
+    fun addSinkingFund(name: String, target: Double, current: Double, monthly: Double) = safeLaunch {
+        settings.setSinkingFunds(sinkingFunds.value.filter { it.name != name } +
+            com.financedashboard.app.data.SettingsStore.SinkingFund(name, target, current, monthly))
+    }
+    fun removeSinkingFund(name: String) = safeLaunch {
+        settings.setSinkingFunds(sinkingFunds.value.filter { it.name != name })
+    }
+
     // ---- Security ----
     val biometricLock = settings.biometricLock.asState(false)
     fun setBiometricLock(v: Boolean) = safeLaunch { settings.setBiometricLock(v) }

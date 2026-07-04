@@ -110,6 +110,10 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE amount < 0")
     fun allExpenses(): Flow<List<TransactionEntity>>
 
+    /** All transactions, both signs (for crypto lots and reconciliation). */
+    @Query("SELECT * FROM transactions")
+    fun allFlow(): Flow<List<TransactionEntity>>
+
     @Query("SELECT * FROM transactions")
     suspend fun allOnce(): List<TransactionEntity>
 

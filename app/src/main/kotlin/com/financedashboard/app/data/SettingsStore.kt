@@ -46,6 +46,11 @@ class SettingsStore(private val context: Context) {
         val notifiedPayoffPct = intPreferencesKey("notify_payoff_pct")
         val notifiedEfFunded = booleanPreferencesKey("notify_ef_funded")
         val notifiedNetWorthHigh = doublePreferencesKey("notify_networth_high")
+        val sinkingFunds = stringPreferencesKey("sinking_funds")
+        val retirementAge = intPreferencesKey("fire_retirement_years")
+        val withdrawalRatePct = doublePreferencesKey("fire_withdrawal_rate")
+        val marginalTaxPct = doublePreferencesKey("marginal_tax_pct")
+        val retirementContribByYear = stringPreferencesKey("retirement_contrib_by_year")
     }
 
     // Record separator / field separator for serialized lists (never appear in user text).
@@ -142,6 +147,45 @@ class SettingsStore(private val context: Context) {
     val futureInflationPct: Flow<Double> = context.dataStore.data.map { it[Keys.futureInflationPct] ?: 2.7 }
     suspend fun setFutureRaisePct(v: Double) = context.dataStore.edit { it[Keys.futureRaisePct] = v }
     suspend fun setFutureInflationPct(v: Double) = context.dataStore.edit { it[Keys.futureInflationPct] = v }
+
+    // ---- Sinking funds ----
+    data class SinkingFund(val name: String, val target: Double, val current: Double, val monthly: Double)
+
+    val sinkingFunds: Flow<List<SinkingFund>> = context.dataStore.data.map { prefs ->
+        (prefs[Keys.sinkingFunds] ?: "").split(RS).filter { it.isNotBlank() }.mapNotNull { rec ->
+            val p = rec.split(FS)
+            if (p.size < 4) return@mapNotNull null
+            val target = p[1].toDoubleOrNull() ?: return@mapNotNull null
+            val current = p[2].toDoubleOrNull() ?: 0.0
+            val monthly = p[3].toDoubleOrNull() ?: 0.0
+            SinkingFund(p[0], target, current, monthly)
+        }
+    }
+
+    suspend fun setSinkingFunds(v: List<SinkingFund>) = context.dataStore.edit { prefs ->
+        prefs[Keys.sinkingFunds] = v.joinToString(RS.toString()) { "${it.name}$FS${it.target}$FS${it.current}$FS${it.monthly}" }
+    }
+
+    // ---- FIRE / decision inputs ----
+    val retirementYears: Flow<Int> = context.dataStore.data.map { it[Keys.retirementAge] ?: 25 }
+    val withdrawalRatePct: Flow<Double> = context.dataStore.data.map { it[Keys.withdrawalRatePct] ?: 4.0 }
+    val marginalTaxPct: Flow<Double> = context.dataStore.data.map { it[Keys.marginalTaxPct] ?: 0.0 }
+    suspend fun setRetirementYears(v: Int) = context.dataStore.edit { it[Keys.retirementAge] = v }
+    suspend fun setWithdrawalRatePct(v: Double) = context.dataStore.edit { it[Keys.withdrawalRatePct] = v }
+    suspend fun setMarginalTaxPct(v: Double) = context.dataStore.edit { it[Keys.marginalTaxPct] = v }
+
+    val retirementContribByYear: Flow<Map<Int, Double>> = context.dataStore.data.map { prefs ->
+        (prefs[Keys.retirementContribByYear] ?: "").split(RS).filter { it.isNotBlank() }.mapNotNull { rec ->
+            val p = rec.split(FS)
+            val year = p[0].toIntOrNull(); val amt = p.getOrNull(1)?.toDoubleOrNull()
+            if (year != null && amt != null) year to amt else null
+        }.toMap()
+    }
+    suspend fun setRetirementContrib(year: Int, amount: Double) = context.dataStore.edit { prefs ->
+        val current = retirementContribByYear.first().toMutableMap()
+        current[year] = amount
+        prefs[Keys.retirementContribByYear] = current.entries.joinToString(RS.toString()) { "${it.key}$FS${it.value}" }
+    }
 
     // ---- Security ----
     val biometricLock: Flow<Boolean> = context.dataStore.data.map { it[Keys.biometricLock] ?: false }

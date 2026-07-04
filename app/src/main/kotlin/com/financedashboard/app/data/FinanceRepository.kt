@@ -205,6 +205,38 @@ class FinanceRepository(private val db: AppDatabase) {
             ).associateBy { it.debtAccountName }
         }
 
+    /** Account-name → type classifier reflecting user overrides, for engines that need it. */
+    val accountTypeOf: Flow<(String) -> com.financedashboard.core.model.AccountType> = accounts.map { list ->
+        val byName = list.associate { it.name to it.type }
+        val fn: (String) -> com.financedashboard.core.model.AccountType =
+            { byName[it] ?: com.financedashboard.core.model.AccountType.UNKNOWN }
+        fn
+    }
+
+    /** Full balance + transaction records for engines (import health, attribution, crypto). */
+    val allBalanceRecords: Flow<List<com.financedashboard.core.model.BalanceRecord>> =
+        db.balanceDao().all().map { rows ->
+            rows.map { com.financedashboard.core.model.BalanceRecord(LocalDate.ofEpochDay(it.epochDay), it.balance, it.accountName) }
+        }
+
+    val allTransactionRecords: Flow<List<com.financedashboard.core.model.TransactionRecord>> =
+        db.transactionDao().allFlow().map { it.map { e -> e.toRecord() } }
+
+    /** Distinct transaction owners (for the household split). */
+    val owners: Flow<List<String>> = db.transactionDao().allExpenses().map { rows ->
+        rows.map { it.owner }.filter { it.isNotBlank() }.distinct().sorted()
+    }
+
+    /** Spending by category filtered to one owner (empty = all owners). */
+    fun spendingByOwner(owner: String, since: LocalDate): Flow<List<CategoryTotal>> =
+        db.transactionDao().expensesSince(since.toEpochDay()).map { rows ->
+            rows.filter { owner.isBlank() || it.owner == owner }
+                .groupBy { it.category }
+                .map { (c, txs) -> CategoryTotal(c, txs.sumOf { -it.amount }) }
+                .filter { it.total > 0 }
+                .sortedByDescending { it.total }
+        }
+
     private fun com.financedashboard.app.data.db.TransactionEntity.toRecord() =
         com.financedashboard.core.model.TransactionRecord(
             LocalDate.ofEpochDay(epochDay), merchant, category, account, statement, notes, amount, tags, owner,

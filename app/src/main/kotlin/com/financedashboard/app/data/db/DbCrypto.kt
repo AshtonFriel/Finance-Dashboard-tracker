@@ -17,11 +17,15 @@ object DbCrypto {
     private const val PREFS = "db-crypto"
     private const val KEY = "db-passphrase-hex"
 
+    /** Per-profile key: the default profile keeps the original key for compatibility. */
+    private fun keyFor(profileId: String) =
+        if (profileId == com.financedashboard.app.data.ProfileManager.DEFAULT_ID) KEY else "$KEY-$profileId"
+
     /**
      * A 64-char hex string used as the SQLCipher passphrase (text, so the same
      * key derivation applies in Room's factory and in the migration ATTACH).
      */
-    fun getOrCreatePassphrase(context: Context): String? = try {
+    fun getOrCreatePassphrase(context: Context, profileId: String = com.financedashboard.app.data.ProfileManager.DEFAULT_ID): String? = try {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
@@ -30,10 +34,11 @@ object DbCrypto {
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
         )
-        prefs.getString(KEY, null) ?: run {
+        val prefKey = keyFor(profileId)
+        prefs.getString(prefKey, null) ?: run {
             val bytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
             val generated = bytes.joinToString("") { "%02x".format(it) }
-            prefs.edit().putString(KEY, generated).apply()
+            prefs.edit().putString(prefKey, generated).apply()
             generated
         }
     } catch (_: Exception) {

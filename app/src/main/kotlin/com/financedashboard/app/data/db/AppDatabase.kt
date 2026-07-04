@@ -26,14 +26,31 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun debtAssumptionDao(): DebtAssumptionDao
 
     companion object {
-        private const val DB_NAME = "finance-dashboard.db"
-
         @Volatile private var instance: AppDatabase? = null
+        @Volatile private var instanceProfile: String? = null
 
-        fun get(context: Context): AppDatabase =
-            instance ?: synchronized(this) {
-                instance ?: build(context.applicationContext).also { instance = it }
+        fun get(context: Context): AppDatabase {
+            val profile = com.financedashboard.app.data.ProfileManager.activeId(context.applicationContext)
+            val existing = instance
+            if (existing != null && instanceProfile == profile) return existing
+            return synchronized(this) {
+                if (instance != null && instanceProfile == profile) instance!!
+                else {
+                    instance?.close()
+                    build(context.applicationContext, profile).also {
+                        instance = it
+                        instanceProfile = profile
+                    }
+                }
             }
+        }
+
+        /** Close and forget the current instance so the next get() opens the active profile fresh. */
+        fun reset() = synchronized(this) {
+            instance?.close()
+            instance = null
+            instanceProfile = null
+        }
 
         /**
          * Opens the database, encrypting it when SQLCipher is usable. The core
@@ -43,31 +60,21 @@ abstract class AppDatabase : RoomDatabase() {
          * factory. State is re-checked after every step so a partial migration
          * can't leave a mismatch.
          */
-        private fun build(context: Context): AppDatabase {
-            val dbFile = context.getDatabasePath(DB_NAME)
-            val passphrase = runCatching { DbCrypto.getOrCreatePassphrase(context) }.getOrNull()
+        private fun build(context: Context, profileId: String): AppDatabase {
+            val dbName = com.financedashboard.app.data.ProfileManager.dbFileName(profileId)
+            val dbFile = context.getDatabasePath(dbName)
+            val passphrase = runCatching { DbCrypto.getOrCreatePassphrase(context, profileId) }.getOrNull()
             val cipherReady = passphrase != null && loadCipherLib()
 
             if (!cipherReady) {
-                // Can't encrypt. Only safe if the existing file is plaintext or absent.
-                if (fileIsEncrypted(dbFile)) {
-                    // Encrypted file but no working cipher: nothing safe to do but
-                    // recreate. Surfaced via the crash recorder if it ever happens.
-                    dbFile.delete()
-                }
-                return openPlaintext(context)
+                if (fileIsEncrypted(dbFile)) dbFile.delete()
+                return openPlaintext(context, dbName)
             }
-
-            // Cipher is ready. Migrate a pre-existing plaintext file once.
             if (DbCrypto.isPlaintextDb(dbFile)) {
                 val migrated = runCatching { DbCrypto.migratePlaintext(context, dbFile, passphrase!!) }.getOrDefault(false)
-                if (!migrated && DbCrypto.isPlaintextDb(dbFile)) {
-                    // Migration failed but left the file plaintext: keep using it unencrypted.
-                    return openPlaintext(context)
-                }
+                if (!migrated && DbCrypto.isPlaintextDb(dbFile)) return openPlaintext(context, dbName)
             }
-            // File is absent or encrypted — open with the cipher factory.
-            return openEncrypted(context, passphrase!!)
+            return openEncrypted(context, dbName, passphrase!!)
         }
 
         private fun loadCipherLib(): Boolean = runCatching { System.loadLibrary("sqlcipher") }.isSuccess
@@ -75,13 +82,13 @@ abstract class AppDatabase : RoomDatabase() {
         private fun fileIsEncrypted(dbFile: java.io.File): Boolean =
             dbFile.exists() && !DbCrypto.isPlaintextDb(dbFile)
 
-        private fun openPlaintext(context: Context): AppDatabase =
-            Room.databaseBuilder(context, AppDatabase::class.java, DB_NAME)
+        private fun openPlaintext(context: Context, dbName: String): AppDatabase =
+            Room.databaseBuilder(context, AppDatabase::class.java, dbName)
                 .fallbackToDestructiveMigration()
                 .build()
 
-        private fun openEncrypted(context: Context, passphrase: String): AppDatabase =
-            Room.databaseBuilder(context, AppDatabase::class.java, DB_NAME)
+        private fun openEncrypted(context: Context, dbName: String, passphrase: String): AppDatabase =
+            Room.databaseBuilder(context, AppDatabase::class.java, dbName)
                 .openHelperFactory(net.zetetic.database.sqlcipher.SupportOpenHelperFactory(passphrase.toByteArray()))
                 .fallbackToDestructiveMigration()
                 .build()

@@ -33,6 +33,78 @@ import com.financedashboard.app.ui.theme.LocalChartColors
 import com.financedashboard.core.engine.InflationEngine
 
 @Composable
+private fun ProfilesSection() {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val chart = LocalChartColors.current
+    // Read once; changes trigger an activity restart so a snapshot is fine.
+    val profiles = remember { com.financedashboard.app.data.ProfileManager.profiles(ctx) }
+    val activeId = remember { com.financedashboard.app.data.ProfileManager.activeId(ctx) }
+    var showAdd by remember { mutableStateOf(false) }
+
+    fun switchTo(id: String) {
+        com.financedashboard.app.data.ProfileManager.setActive(ctx, id)
+        com.financedashboard.app.data.db.AppDatabase.reset()
+        val intent = android.content.Intent(ctx, com.financedashboard.app.MainActivity::class.java)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK or android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        ctx.startActivity(intent)
+        (ctx as? android.app.Activity)?.finish()
+    }
+
+    SectionTitle("Profiles")
+    Card {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                "Each profile is a separate, independently-encrypted database on this device — the offline way to " +
+                    "keep, say, personal and household finances apart. Nothing syncs.",
+                style = MaterialTheme.typography.bodySmall, color = chart.secondaryInk,
+            )
+            for (p in profiles) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        p.name + if (p.id == activeId) "  (active)" else "",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (p.id == activeId) chart.primaryInk else chart.secondaryInk,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (p.id != activeId) {
+                        TextButton(onClick = { switchTo(p.id) }) { Text("Switch") }
+                    }
+                    if (p.id != com.financedashboard.app.data.ProfileManager.DEFAULT_ID) {
+                        TextButton(onClick = {
+                            com.financedashboard.app.data.ProfileManager.delete(ctx, p.id)
+                            if (p.id == activeId) switchTo(com.financedashboard.app.data.ProfileManager.DEFAULT_ID)
+                        }) { Text("Delete", color = chart.critical) }
+                    }
+                }
+            }
+            OutlinedButton(onClick = { showAdd = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Add profile")
+            }
+        }
+    }
+    if (showAdd) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showAdd = false },
+            title = { Text("New profile") },
+            text = {
+                androidx.compose.material3.OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (name.isNotBlank()) {
+                        val p = com.financedashboard.app.data.ProfileManager.add(ctx, name.trim())
+                        showAdd = false
+                        switchTo(p.id)
+                    }
+                }) { Text("Create & switch") }
+            },
+            dismissButton = { TextButton(onClick = { showAdd = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
 fun SettingsScreen(vm: AppViewModel) {
     val chart = LocalChartColors.current
     val status by vm.importStatus.collectAsState()
@@ -213,6 +285,8 @@ fun SettingsScreen(vm: AppViewModel) {
                 OutlinedButton(onClick = { editCpiYear = -1 }) { Text("Add year") }
             }
         }
+
+        ProfilesSection()
 
         SectionTitle("Diagnostics")
         Card {

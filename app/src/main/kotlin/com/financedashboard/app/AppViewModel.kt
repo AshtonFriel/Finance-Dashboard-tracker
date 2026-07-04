@@ -892,6 +892,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     else -> null
                 }
             }
+            com.financedashboard.app.widget.NetWorthWidget.refresh(getApplication())
         }
     }
 

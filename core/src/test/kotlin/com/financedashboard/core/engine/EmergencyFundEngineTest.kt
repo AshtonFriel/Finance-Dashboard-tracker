@@ -59,4 +59,13 @@ class EmergencyFundEngineTest {
         assertEquals(3_000.0, EmergencyFundEngine.averageMonthlyExpenses(listOf(2_000.0, 4_000.0, 0.0)), 0.001)
         assertEquals(0.0, EmergencyFundEngine.averageMonthlyExpenses(emptyList()), 0.001)
     }
+
+    @Test
+    fun `typical monthly is a median unaffected by one huge month`() {
+        val months = listOf(3_000.0, 3_200.0, 2_800.0, 3_100.0, 2_900.0, 29_000.0)
+        // Mean would be ~7,333; median is ~3,050 — the outlier can't skew it.
+        assertEquals(3_050.0, EmergencyFundEngine.typicalMonthlyExpenses(months), 0.001)
+        assertEquals(0.0, EmergencyFundEngine.typicalMonthlyExpenses(emptyList()), 0.001)
+        assertEquals(3_000.0, EmergencyFundEngine.typicalMonthlyExpenses(listOf(3_000.0, 0.0)), 0.001)
+    }
 }

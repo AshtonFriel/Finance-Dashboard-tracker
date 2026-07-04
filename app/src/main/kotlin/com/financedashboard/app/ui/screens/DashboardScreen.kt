@@ -589,7 +589,7 @@ private fun EmergencyFundSection(vm: AppViewModel) {
                 )
                 Text(
                     (if (income > 0.005) "you earn ~${fullCurrency(income)}/mo · " else "") +
-                        "you spend ~${fullCurrency(state.avgMonthlyExpenses)}/mo",
+                        "you typically spend ~${fullCurrency(state.avgMonthlyExpenses)}/mo",
                     style = MaterialTheme.typography.labelSmall,
                     color = Fiscal.TextMuted,
                 )

@@ -69,4 +69,17 @@ object EmergencyFundEngine {
         val nonEmpty = monthTotals.filter { it > 0.005 }
         return if (nonEmpty.isEmpty()) 0.0 else nonEmpty.sum() / nonEmpty.size
     }
+
+    /**
+     * Typical (median) monthly spend — the robust figure for runway and FIRE.
+     * The mean is wrecked by a single outlier month (a car repair, a medical
+     * bill, a tax payment); the median ignores it, which is what "how much do I
+     * normally spend" should mean.
+     */
+    fun typicalMonthlyExpenses(monthTotals: List<Double>): Double {
+        val sorted = monthTotals.filter { it > 0.005 }.sorted()
+        if (sorted.isEmpty()) return 0.0
+        val n = sorted.size
+        return if (n % 2 == 1) sorted[n / 2] else (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+    }
 }

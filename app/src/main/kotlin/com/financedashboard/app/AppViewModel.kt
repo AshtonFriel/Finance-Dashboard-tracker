@@ -212,8 +212,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- Emergency fund ----
     val liquidCash = repo.liquidCash.asState(0.0)
-    val avgMonthlyExpenses = repo.monthlyExpenses(6).map { months ->
-        com.financedashboard.core.engine.EmergencyFundEngine.averageMonthlyExpenses(months.map { it.second })
+    // Median of the trailing 12 full months — robust to one-off big months
+    // (car repair, medical, taxes) that would otherwise skew a mean.
+    val avgMonthlyExpenses = repo.monthlyExpenses(12).map { months ->
+        com.financedashboard.core.engine.EmergencyFundEngine.typicalMonthlyExpenses(months.map { it.second })
     }.asState(0.0)
     val avgMonthlyIncome = repo.avgMonthlyPaychecks.asState(0.0)
     val efTargetMonths = settings.efTargetMonths.asState(6)

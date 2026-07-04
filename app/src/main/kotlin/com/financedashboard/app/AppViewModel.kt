@@ -70,6 +70,29 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun <T> kotlinx.coroutines.flow.Flow<T>.asState(initial: T) =
         stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), initial)
 
+    /** Surfaces the last background error to the UI instead of it being silent. */
+    val lastError = MutableStateFlow<String?>(null)
+    fun clearError() { lastError.value = null }
+
+    /**
+     * All view-model background work runs through here. An uncaught exception in
+     * a coroutine launched from viewModelScope would otherwise crash the whole
+     * app; instead we catch it, log it, and surface a message.
+     */
+    private fun safeLaunch(
+        context: kotlin.coroutines.CoroutineContext = kotlin.coroutines.EmptyCoroutineContext,
+        block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit,
+    ) = viewModelScope.launch(context) {
+        try {
+            block()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            android.util.Log.e("AppViewModel", "Background task failed", e)
+            lastError.value = e.message ?: e.javaClass.simpleName
+        }
+    }
+
     // ---- Accounts & net worth ----
     val accounts = repo.accounts.asState(emptyList())
     val netWorth = repo.monthlyNetWorth.asState(emptyList())
@@ -148,21 +171,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { PayoffStrategy.valueOf(s) }.getOrDefault(PayoffStrategy.AVALANCHE)
     }.asState(PayoffStrategy.AVALANCHE)
 
-    fun setExtraMonthly(v: Double) = viewModelScope.launch { settings.setExtraMonthly(v) }
-    fun setStrategy(v: PayoffStrategy) = viewModelScope.launch { settings.setStrategy(v.name) }
+    fun setExtraMonthly(v: Double) = safeLaunch { settings.setExtraMonthly(v) }
+    fun setStrategy(v: PayoffStrategy) = safeLaunch { settings.setStrategy(v.name) }
 
     val extraGrowthPct = settings.extraGrowthPct.asState(0.0)
     val lumpSums = settings.lumpSums.asState(emptyMap())
     val customOrder = settings.customOrder.asState(emptyList())
 
-    fun setExtraGrowthPct(v: Double) = viewModelScope.launch { settings.setExtraGrowthPct(v) }
-    fun addLumpSum(month: java.time.YearMonth, amount: Double) = viewModelScope.launch {
+    fun setExtraGrowthPct(v: Double) = safeLaunch { settings.setExtraGrowthPct(v) }
+    fun addLumpSum(month: java.time.YearMonth, amount: Double) = safeLaunch {
         settings.setLumpSums(lumpSums.value + (month to amount))
     }
-    fun removeLumpSum(month: java.time.YearMonth) = viewModelScope.launch {
+    fun removeLumpSum(month: java.time.YearMonth) = safeLaunch {
         settings.setLumpSums(lumpSums.value - month)
     }
-    fun moveInCustomOrder(name: String, up: Boolean) = viewModelScope.launch {
+    fun moveInCustomOrder(name: String, up: Boolean) = safeLaunch {
         val current = customOrder.value.ifEmpty {
             debtInputs.value.filter { it.includeInPlan }.sortedByDescending { it.aprPct }.map { it.accountName }
         }.toMutableList()
@@ -203,9 +226,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         else com.financedashboard.core.engine.EmergencyFundEngine.compute(cash, expenses, months, saving)
     }.flowOn(Dispatchers.Default).asState(null)
 
-    fun setEfTargetMonths(v: Int) = viewModelScope.launch { settings.setEfTargetMonths(v) }
-    fun setEfMonthlySaving(v: Double) = viewModelScope.launch { settings.setEfMonthlySaving(v) }
-    fun setEfFirstInPayoff(v: Boolean) = viewModelScope.launch { settings.setEfFirstInPayoff(v) }
+    fun setEfTargetMonths(v: Int) = safeLaunch { settings.setEfTargetMonths(v) }
+    fun setEfMonthlySaving(v: Double) = safeLaunch { settings.setEfMonthlySaving(v) }
+    fun setEfFirstInPayoff(v: Boolean) = safeLaunch { settings.setEfFirstInPayoff(v) }
 
     private data class EfConfig(val enabled: Boolean, val startBalance: Double, val targetAmount: Double)
 
@@ -292,7 +315,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             .map { it.candidate.accountName to -it.candidate.balance }
     }.asState(emptyList())
 
-    fun answerCardQuestion(name: String, revolves: Boolean) = viewModelScope.launch {
+    fun answerCardQuestion(name: String, revolves: Boolean) = safeLaunch {
         repo.setDebtAssumption(
             DebtAssumptionEntity(
                 accountName = name,
@@ -317,12 +340,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val showReal = settings.showReal.asState(false)
     val redirectDebtBudget = settings.redirectDebtBudget.asState(false)
 
-    fun setHorizonYears(v: Int) = viewModelScope.launch { settings.setHorizonYears(v) }
-    fun setMonthlyContribution(v: Double) = viewModelScope.launch { settings.setMonthlyContribution(v) }
-    fun setExpectedReturnPct(v: Double) = viewModelScope.launch { settings.setExpectedReturnPct(v) }
-    fun setAssumedInflationPct(v: Double) = viewModelScope.launch { settings.setAssumedInflationPct(v) }
-    fun setShowReal(v: Boolean) = viewModelScope.launch { settings.setShowReal(v) }
-    fun setRedirectDebtBudget(v: Boolean) = viewModelScope.launch { settings.setRedirectDebtBudget(v) }
+    fun setHorizonYears(v: Int) = safeLaunch { settings.setHorizonYears(v) }
+    fun setMonthlyContribution(v: Double) = safeLaunch { settings.setMonthlyContribution(v) }
+    fun setExpectedReturnPct(v: Double) = safeLaunch { settings.setExpectedReturnPct(v) }
+    fun setAssumedInflationPct(v: Double) = safeLaunch { settings.setAssumedInflationPct(v) }
+    fun setShowReal(v: Boolean) = safeLaunch { settings.setShowReal(v) }
+    fun setRedirectDebtBudget(v: Boolean) = safeLaunch { settings.setRedirectDebtBudget(v) }
 
     /** Freed debt budget flowing into investments once the payoff plan completes. */
     data class Redirect(val fromMonth: Int, val amount: Double)
@@ -338,8 +361,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     val stressEnabled = settings.stressEnabled.asState(false)
     val stressRatePct = settings.stressRatePct.asState(2.0)
-    fun setStressEnabled(v: Boolean) = viewModelScope.launch { settings.setStressEnabled(v) }
-    fun setStressRatePct(v: Double) = viewModelScope.launch { settings.setStressRatePct(v) }
+    fun setStressEnabled(v: Boolean) = safeLaunch { settings.setStressEnabled(v) }
+    fun setStressRatePct(v: Double) = safeLaunch { settings.setStressRatePct(v) }
 
     private data class InvestParams(
         val years: Int,
@@ -440,11 +463,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.flowOn(Dispatchers.Default).asState(emptyList())
 
-    fun addGoal(name: String, target: Double, years: Int) = viewModelScope.launch {
+    fun addGoal(name: String, target: Double, years: Int) = safeLaunch {
         settings.setGoals(goals.value.filter { it.name != name } + com.financedashboard.app.data.SettingsStore.Goal(name, target, years))
     }
 
-    fun removeGoal(name: String) = viewModelScope.launch {
+    fun removeGoal(name: String) = safeLaunch {
         settings.setGoals(goals.value.filter { it.name != name })
     }
 
@@ -484,10 +507,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     data class PersonalInflation(val ratePct: Double, val headlinePct: Double, val categories: List<CategoryRate>)
 
     val categoryInflation = settings.categoryInflation.asState(emptyMap())
-    fun setCategoryRate(category: String, ratePct: Double) = viewModelScope.launch {
+    fun setCategoryRate(category: String, ratePct: Double) = safeLaunch {
         settings.setCategoryInflation(categoryInflation.value + (category to ratePct))
     }
-    fun clearCategoryRate(category: String) = viewModelScope.launch {
+    fun clearCategoryRate(category: String) = safeLaunch {
         settings.setCategoryInflation(categoryInflation.value - category)
     }
 
@@ -511,8 +534,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---- Forward-looking projection ----
     val futureRaisePct = settings.futureRaisePct.asState(3.0)
     val futureInflationPct = settings.futureInflationPct.asState(2.7)
-    fun setFutureRaisePct(v: Double) = viewModelScope.launch { settings.setFutureRaisePct(v) }
-    fun setFutureInflationPct(v: Double) = viewModelScope.launch { settings.setFutureInflationPct(v) }
+    fun setFutureRaisePct(v: Double) = safeLaunch { settings.setFutureRaisePct(v) }
+    fun setFutureInflationPct(v: Double) = safeLaunch { settings.setFutureInflationPct(v) }
 
     data class ForwardYear(val year: Int, val nominal: Double, val real: Double)
     data class ForwardProjection(val years: List<ForwardYear>, val realDeltaPctPerYear: Double)
@@ -534,14 +557,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- Security ----
     val biometricLock = settings.biometricLock.asState(false)
-    fun setBiometricLock(v: Boolean) = viewModelScope.launch { settings.setBiometricLock(v) }
+    fun setBiometricLock(v: Boolean) = safeLaunch { settings.setBiometricLock(v) }
 
     // ---- Saved scenarios (save & compare) ----
     val savedScenarios = settings.scenarios.asState(emptyList())
     val compareScenario = MutableStateFlow<String?>(null)
     fun setCompareScenario(name: String?) { compareScenario.value = if (compareScenario.value == name) null else name }
 
-    fun saveCurrentScenario(name: String) = viewModelScope.launch {
+    fun saveCurrentScenario(name: String) = safeLaunch {
         val entry = com.financedashboard.app.data.SettingsStore.SavedScenario(
             name = name.trim(),
             strategy = strategy.value.name,
@@ -552,7 +575,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         settings.setScenarios(savedScenarios.value.filter { it.name != entry.name } + entry)
     }
 
-    fun deleteScenario(name: String) = viewModelScope.launch {
+    fun deleteScenario(name: String) = safeLaunch {
         settings.setScenarios(savedScenarios.value.filter { it.name != name })
         if (compareScenario.value == name) compareScenario.value = null
     }
@@ -567,15 +590,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }.flowOn(Dispatchers.Default).asState(null)
 
     // ---- Inferred payments: accept into the debt assumption ----
-    fun acceptInferredPayment(name: String) = viewModelScope.launch {
-        val inferred = inferredPayments.value[name] ?: return@launch
-        val input = debtInputs.value.firstOrNull { it.accountName == name } ?: return@launch
+    fun acceptInferredPayment(name: String) = safeLaunch {
+        val inferred = inferredPayments.value[name] ?: return@safeLaunch
+        val input = debtInputs.value.firstOrNull { it.accountName == name } ?: return@safeLaunch
         repo.setDebtAssumption(DebtAssumptionEntity(name, input.aprPct, inferred.monthlyPayment, input.includeInPlan))
     }
 
     // ---- Rates CSV import ----
     val ratesImportStatus = MutableStateFlow<String?>(null)
-    fun importRates(uri: Uri) = viewModelScope.launch {
+    fun importRates(uri: Uri) = safeLaunch {
         ratesImportStatus.value = withContext(Dispatchers.IO) {
             try {
                 val entries = getApplication<Application>().contentResolver.openInputStream(uri)?.use { s ->
@@ -595,7 +618,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---- Backup / restore ----
     val backupStatus = MutableStateFlow<String?>(null)
 
-    fun exportBackup() = viewModelScope.launch {
+    fun exportBackup() = safeLaunch {
         backupStatus.value = withContext(Dispatchers.IO) {
             try {
                 val json = com.financedashboard.core.backup.BackupCodec.encode(repo.buildBackup())
@@ -623,7 +646,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // (BackupCodec.Backup fully-qualified is fine here — it is only a type reference.)
     val pendingRestore = MutableStateFlow<PendingRestore?>(null)
 
-    fun requestRestore(uri: Uri) = viewModelScope.launch {
+    fun requestRestore(uri: Uri) = safeLaunch {
         backupStatus.value = withContext(Dispatchers.IO) {
             try {
                 val text = getApplication<Application>().contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
@@ -646,7 +669,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun confirmRestore() {
         val pending = pendingRestore.value ?: return
         pendingRestore.value = null
-        viewModelScope.launch {
+        safeLaunch {
             backupStatus.value = "Restoring…"
             repo.restoreBackup(pending.backup)
             backupStatus.value = "Restored ${pending.summary}"
@@ -657,9 +680,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- Notifications ----
     val notificationsEnabled = settings.notificationsEnabled.asState(false)
-    fun setNotificationsEnabled(v: Boolean) = viewModelScope.launch {
-        settings.setNotificationsEnabled(v)
-        com.financedashboard.app.notify.NotifyScheduler.setEnabled(getApplication(), v)
+    fun setNotificationsEnabled(v: Boolean) = safeLaunch {
+        // Schedule first; only persist "on" if scheduling actually succeeded.
+        val scheduled = com.financedashboard.app.notify.NotifyScheduler.setEnabled(getApplication(), v)
+        if (v && !scheduled) {
+            lastError.value = "Couldn't enable notifications on this device"
+            settings.setNotificationsEnabled(false)
+        } else {
+            settings.setNotificationsEnabled(v)
+        }
     }
     fun accountHistory(name: String) = repo.balanceHistory(name)
 
@@ -676,7 +705,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     val pendingImport = MutableStateFlow<PendingImport?>(null)
 
-    fun requestImportBalances(uri: Uri) = viewModelScope.launch {
+    fun requestImportBalances(uri: Uri) = safeLaunch {
         importStatus.value = "Reading file…"
         val preview = importer.previewBalances(uri)
         if (preview.error != null) {
@@ -688,7 +717,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun requestImportTransactions(uri: Uri) = viewModelScope.launch {
+    fun requestImportTransactions(uri: Uri) = safeLaunch {
         importStatus.value = "Reading file…"
         val preview = importer.previewTransactions(uri)
         if (preview.error != null) {
@@ -702,7 +731,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun confirmPendingImport() {
         val pending = pendingImport.value ?: return
         pendingImport.value = null
-        viewModelScope.launch {
+        safeLaunch {
             importStatus.value = "Importing…"
             importStatus.value = when (pending.preview.kind) {
                 CsvImporter.Preview.Kind.BALANCES -> when (val r = importer.importBalances(pending.uri)) {
@@ -725,15 +754,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setDebtAssumption(name: String, aprPct: Double, minPayment: Double, include: Boolean) =
-        viewModelScope.launch {
+        safeLaunch {
             repo.setDebtAssumption(DebtAssumptionEntity(name, aprPct, minPayment, include))
         }
 
-    fun setManualIncome(year: Int, amount: Double) = viewModelScope.launch { repo.setManualIncome(year, amount) }
-    fun deleteManualIncome(year: Int) = viewModelScope.launch { repo.deleteManualIncome(year) }
-    fun setCpiOverride(year: Int, value: Double) = viewModelScope.launch { repo.setCpiOverride(year, value) }
-    fun deleteCpiOverride(year: Int) = viewModelScope.launch { repo.deleteCpiOverride(year) }
+    fun setManualIncome(year: Int, amount: Double) = safeLaunch { repo.setManualIncome(year, amount) }
+    fun deleteManualIncome(year: Int) = safeLaunch { repo.deleteManualIncome(year) }
+    fun setCpiOverride(year: Int, value: Double) = safeLaunch { repo.setCpiOverride(year, value) }
+    fun deleteCpiOverride(year: Int) = safeLaunch { repo.deleteCpiOverride(year) }
     fun overrideAccountType(name: String, type: AccountType) =
-        viewModelScope.launch { repo.overrideAccountType(name, type) }
-    fun wipeAll() = viewModelScope.launch { repo.wipeAll() }
+        safeLaunch { repo.overrideAccountType(name, type) }
+    fun wipeAll() = safeLaunch { repo.wipeAll() }
 }

@@ -12,15 +12,20 @@ object NotifyScheduler {
 
     private const val WORK_NAME = "milestone-checks"
 
-    fun setEnabled(context: Context, enabled: Boolean) {
+    /** Returns true on success; never throws so a scheduling problem can't crash the app. */
+    fun setEnabled(context: Context, enabled: Boolean): Boolean = try {
         val wm = WorkManager.getInstance(context)
-        if (!enabled) {
+        if (enabled) {
+            val request = PeriodicWorkRequestBuilder<NotifyWorker>(7, TimeUnit.DAYS)
+                .setConstraints(Constraints.Builder().build())
+                .build()
+            wm.enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+        } else {
             wm.cancelUniqueWork(WORK_NAME)
-            return
         }
-        val request = PeriodicWorkRequestBuilder<NotifyWorker>(7, TimeUnit.DAYS)
-            .setConstraints(Constraints.Builder().build())
-            .build()
-        wm.enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+        true
+    } catch (e: Exception) {
+        android.util.Log.e("NotifyScheduler", "Failed to ${if (enabled) "schedule" else "cancel"} notifications", e)
+        false
     }
 }

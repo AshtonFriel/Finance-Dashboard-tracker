@@ -191,6 +191,39 @@ fun SettingsScreen(vm: AppViewModel) {
             }
         }
 
+        SectionTitle("Diagnostics")
+        Card {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val lastError by vm.lastError.collectAsState()
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                lastError?.let {
+                    Text("Last error: $it", style = MaterialTheme.typography.bodySmall, color = chart.critical)
+                }
+                Text(
+                    "If the app ever crashes, the last crash is recorded on-device. Share it so it can be fixed.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = chart.secondaryInk,
+                )
+                OutlinedButton(
+                    onClick = {
+                        val file = com.financedashboard.app.FinanceApp.crashFile(ctx)
+                        if (file.exists()) {
+                            val uri = androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+                            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            ctx.startActivity(android.content.Intent.createChooser(intent, "Share crash log"))
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Share last crash log")
+                }
+            }
+        }
+
         SectionTitle("Privacy & security")
         Card {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

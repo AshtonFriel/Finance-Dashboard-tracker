@@ -176,6 +176,15 @@ fun SettingsScreen(vm: AppViewModel) {
                         Column {
                             Text(f.title, style = MaterialTheme.typography.bodyMedium, color = chart.primaryInk)
                             Text(f.detail, style = MaterialTheme.typography.labelSmall, color = chart.secondaryInk)
+                            if (f.account != null && f.suggestedAdjustment != null) {
+                                TextButton(onClick = { vm.applyBalanceAdjustment(f.account!!, f.suggestedAdjustment!!) }) {
+                                    Text(
+                                        "Add ${com.financedashboard.app.ui.charts.fullCurrency(f.suggestedAdjustment!!)} adjustment to reconcile",
+                                        color = chart.seriesAqua,
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                            }
                         }
                     }
                 }

@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
@@ -179,9 +180,15 @@ fun DashboardScreen(vm: AppViewModel, navController: NavHostController) {
 
         SinkingFundsSection(vm)
 
+        SafeToSpendSection(vm)
+
         CashFlowSection(vm)
 
+        SankeySection(vm)
+
         AttributionSection(vm)
+
+        InterestPaidSection(vm)
 
         MilestonesSection(vm)
 
@@ -516,6 +523,72 @@ private fun SinkingFundsSection(vm: AppViewModel) {
 }
 
 @Composable
+private fun SafeToSpendSection(vm: AppViewModel) {
+    val s by vm.safeToSpend.collectAsState()
+    val r = s ?: return
+    if (r.typicalIncome < 1.0) return
+    Eyebrow("Safe to spend this month", modifier = Modifier.padding(top = 6.dp))
+    FiscalCard {
+        Text(
+            fullCurrency(r.safeToSpend),
+            style = MaterialTheme.typography.headlineMedium,
+            color = if (r.safeToSpend >= 0) Fiscal.Accent else Fiscal.Coral,
+        )
+        Text(
+            "typical income ${fullCurrency(r.typicalIncome)} − recurring ${fullCurrency(r.committedRecurring)} − " +
+                "planned debt/savings ${fullCurrency(r.plannedTransfers)} − spent ${fullCurrency(r.spentSoFar)}",
+            style = MaterialTheme.typography.labelSmall,
+            color = Fiscal.TextMuted,
+        )
+    }
+}
+
+@Composable
+private fun SankeySection(vm: AppViewModel) {
+    val chart = LocalChartColors.current
+    val spending by vm.spendingLastYear.collectAsState()
+    val cashFlow by vm.cashFlow.collectAsState()
+    if (spending.isEmpty() || cashFlow.isEmpty()) return
+    val months = cashFlow.takeLast(12)
+    val monthlyIncome = months.sumOf { it.income } / months.size.coerceAtLeast(1)
+    val monthlySpend = spending.sumOf { it.total } / 12.0
+    if (monthlyIncome < 1.0) return
+
+    Eyebrow("Where the money goes", modifier = Modifier.padding(top = 6.dp))
+    FiscalCard {
+        val top = spending.take(5).map { it.total / 12.0 }
+        val flows = spending.take(5).mapIndexed { i, c ->
+            com.financedashboard.app.ui.charts.SankeyFlow(c.category, c.total / 12.0, chart.categorical[i % chart.categorical.size])
+        }
+        val saved = (monthlyIncome - monthlySpend).coerceAtLeast(0.0)
+        val all = flows + if (saved > 0) listOf(com.financedashboard.app.ui.charts.SankeyFlow("Saved/invested", saved, Fiscal.Accent)) else emptyList()
+        com.financedashboard.app.ui.charts.SankeyDiagram("Income", monthlyIncome, all)
+        Text("Monthly averages. Categories beyond the top 5 are omitted for clarity.",
+            style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted)
+    }
+}
+
+@Composable
+private fun InterestPaidSection(vm: AppViewModel) {
+    val ledger by vm.interestLedger.collectAsState()
+    if (ledger.isEmpty()) return
+    val total = com.financedashboard.core.engine.InterestLedgerEngine.totalInterestPaid(ledger)
+    Eyebrow("Interest paid so far", modifier = Modifier.padding(top = 6.dp))
+    FiscalCard {
+        Text(fullCurrency(total), style = MaterialTheme.typography.titleLarge, color = Fiscal.Coral)
+        Text("estimated lifetime interest across your tracked debts", style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted)
+        Spacer(Modifier.height(8.dp))
+        for (d in ledger.sortedByDescending { it.interestPaid }) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                Text(d.account.take(26), style = MaterialTheme.typography.bodySmall, color = Fiscal.TextSecondary, modifier = Modifier.weight(1f))
+                Text(fullCurrency(d.interestPaid), style = MaterialTheme.typography.labelMedium, color = Fiscal.TextPrimary)
+            }
+        }
+        Text("Estimated from balance history and matched payments.", style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+@Composable
 private fun AttributionSection(vm: AppViewModel) {
     val attr by vm.attribution.collectAsState()
     val a = attr ?: return
@@ -532,8 +605,9 @@ private fun AttributionSection(vm: AppViewModel) {
         val rows = listOf(
             Triple("Saved from income", a.cashSaved, Fiscal.Accent),
             Triple("Market growth", a.marketChange, Fiscal.Sky),
+            Triple("Crypto swings", a.cryptoChange, Fiscal.Amber),
             Triple("Debt paid down", a.debtPrincipalPaid, Fiscal.Coral),
-            Triple("Asset revaluation", a.assetRevaluation, Fiscal.Amber),
+            Triple("Asset revaluation", a.assetRevaluation, Color(0xFFB39DF1)),
             Triple("Unexplained (data gaps)", a.residual, Fiscal.TextMuted),
         ).filter { kotlin.math.abs(it.second) > 1.0 }
         val maxMag = rows.maxOfOrNull { kotlin.math.abs(it.second) } ?: 1.0

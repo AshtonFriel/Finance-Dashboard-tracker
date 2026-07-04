@@ -510,6 +510,28 @@ fun DebtsScreen(vm: AppViewModel) {
                             Text("✕", color = Fiscal.TextMuted)
                         }
                     }
+                    // Diff table: what changed and the resulting delta.
+                    if (compareName == sc.name && comparisonPlan != null) {
+                        val cp = comparisonPlan!!
+                        HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Fiscal.Hairline)
+                        val w = listOf(1.3f, 1f, 1f)
+                        TableRow(listOf("Assumption", "Saved", "Current"), w, emphasize = true)
+                        DiffRow("Strategy", sc.strategy.lowercase().replaceFirstChar { it.uppercase() }, strategy.name.lowercase().replaceFirstChar { it.uppercase() }, w)
+                        DiffRow("Extra/mo", fullCurrency(sc.extra), fullCurrency(extra), w)
+                        DiffRow("Growth", "${sc.growthPct}%", "${vm.extraGrowthPct.value}%", w)
+                        DiffRow("Lump sums", "${sc.lumpSums.size}", "${vm.lumpSums.value.size}", w)
+                        HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Fiscal.Hairline)
+                        val monthsDelta = cp.combinedBalanceByMonth.size - activePlan.combinedBalanceByMonth.size
+                        val interestDelta = cp.totalInterest - activePlan.totalInterest
+                        TableRow(listOf("Payoff", cp.payoffMonth?.format(monthFmt) ?: "—", activePlan.payoffMonth?.format(monthFmt) ?: "—"), w)
+                        TableRow(listOf("Total interest", fullCurrency(cp.totalInterest), fullCurrency(activePlan.totalInterest)), w)
+                        Text(
+                            "Current plan is " + (if (monthsDelta >= 0) "${monthsDelta} months faster, ${fullCurrency(interestDelta)} less interest" else "${-monthsDelta} months slower, ${fullCurrency(-interestDelta)} more interest"),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (monthsDelta >= 0) Fiscal.Accent else Fiscal.Amber,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
             }
 
@@ -620,6 +642,16 @@ fun DebtsScreen(vm: AppViewModel) {
             },
         )
     }
+}
+
+@Composable
+private fun DiffRow(label: String, saved: String, current: String, weights: List<Float>) {
+    val changed = saved != current
+    TableRow(
+        listOf(label, saved, current + if (changed) "  ●" else ""),
+        weights,
+        color = if (changed) Fiscal.Amber else Fiscal.TextSecondary,
+    )
 }
 
 @Composable

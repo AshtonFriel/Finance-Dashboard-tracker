@@ -369,6 +369,70 @@ fun InvestScreen(vm: AppViewModel) {
                 }
             }
 
+            // Monte Carlo retirement.
+            val mc by vm.monteCarlo.collectAsState()
+            val vol by vm.mcVolatilityPct.collectAsState()
+            mc?.let { m ->
+                Eyebrow("Monte Carlo — ${m.runs} simulated futures")
+                FiscalCard {
+                    Text("${(m.probabilityOfGoal * 100).toInt()}% chance of reaching your goal",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (m.probabilityOfGoal >= 0.7) Fiscal.Accent else if (m.probabilityOfGoal >= 0.4) Fiscal.Amber else Fiscal.Coral)
+                    Spacer(Modifier.height(6.dp))
+                    Text("In ${m.years} years, outcomes range:", style = MaterialTheme.typography.bodySmall, color = Fiscal.TextSecondary)
+                    Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                        Column(Modifier.weight(1f)) { Text("Unlucky (10%)", style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted); Text(compactCurrency(m.p10), style = MaterialTheme.typography.titleSmall, color = Fiscal.Coral) }
+                        Column(Modifier.weight(1f)) { Text("Median", style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted); Text(compactCurrency(m.p50), style = MaterialTheme.typography.titleSmall, color = Fiscal.TextPrimary) }
+                        Column(Modifier.weight(1f)) { Text("Lucky (90%)", style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted); Text(compactCurrency(m.p90), style = MaterialTheme.typography.titleSmall, color = Fiscal.Accent) }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text("Volatility: ${vol.toInt()}%/yr", style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted)
+                    Slider(value = vol.toFloat(), onValueChange = { vm.setMcVolatilityPct(it.toInt().toDouble()) }, valueRange = 3f..40f)
+                    Text("Returns drawn from a normal distribution around your expected rate. Not a guarantee — a picture of the risk.",
+                        style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted)
+                }
+            }
+
+            // Roth vs traditional.
+            val roth by vm.rothComparison.collectAsState()
+            val retRate by vm.retirementRatePct.collectAsState()
+            val margin by vm.marginalTaxPct.collectAsState()
+            roth?.let { r ->
+                Eyebrow("Roth vs traditional")
+                FiscalCard {
+                    Row {
+                        Column(Modifier.weight(1f)) { Eyebrow("Roth (tax now)"); Text(compactCurrency(r.rothAfterTax), style = MaterialTheme.typography.titleMedium, color = if (r.rothWins) Fiscal.Accent else Fiscal.TextPrimary) }
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) { Eyebrow("Traditional (tax later)"); Text(compactCurrency(r.traditionalAfterTax), style = MaterialTheme.typography.titleMedium, color = if (!r.rothWins) Fiscal.Accent else Fiscal.TextPrimary) }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        if (r.rothWins) "Roth wins — you expect a higher tax rate in retirement (${retRate.toInt()}%) than now (${if (margin>0) margin.toInt() else 24}%)."
+                        else "Traditional wins — you expect a lower tax rate in retirement (${retRate.toInt()}%) than now (${if (margin>0) margin.toInt() else 24}%).",
+                        style = MaterialTheme.typography.bodySmall, color = Fiscal.TextSecondary,
+                    )
+                    Text("Retirement tax rate: ${retRate.toInt()}%", style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted)
+                    Slider(value = retRate.toFloat(), onValueChange = { vm.setRetirementRatePct(it.toInt().toDouble()) }, valueRange = 0f..50f)
+                    Text("Set your current marginal rate on the Decisions screen; retirement rate here. Editable, so no tax API needed.",
+                        style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted)
+                }
+            }
+
+            // Crypto sell analysis.
+            val sell by vm.cryptoSell.collectAsState()
+            val ltcg by vm.ltcgRatePct.collectAsState()
+            sell?.let { s ->
+                Eyebrow("If you sold your crypto")
+                FiscalCard {
+                    Row {
+                        Column(Modifier.weight(1f)) { Eyebrow("Unrealized gain"); Text(signedCurrency(s.unrealizedGain), style = MaterialTheme.typography.titleMedium, color = if (s.unrealizedGain >= 0) Fiscal.Accent else Fiscal.Coral) }
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) { Eyebrow("Est. tax if sold"); Text(fullCurrency(s.ltcgTax), style = MaterialTheme.typography.titleMedium, color = Fiscal.Coral) }
+                    }
+                    Text("Net after tax: ${fullCurrency(s.netProceeds)} (basis ${fullCurrency(s.costBasis)})", style = MaterialTheme.typography.bodySmall, color = Fiscal.TextSecondary, modifier = Modifier.padding(top = 4.dp))
+                    Text("Long-term capital-gains rate: ${ltcg.toInt()}%", style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted)
+                    Slider(value = ltcg.toFloat(), onValueChange = { vm.setLtcgRatePct(it.toInt().toDouble()) }, valueRange = 0f..37f)
+                }
+            }
+
             // Crypto cost basis.
             val lots by vm.cryptoLots.collectAsState()
             lots?.let { r ->

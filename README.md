@@ -41,4 +41,6 @@ gradle :app:assembleDebug  # APK at app/build/outputs/apk/debug/app-debug.apk
 
 - Optional opt-in CPI refresh from the BLS API
 
+Also implemented: interest-paid ledger, safe-to-spend number, Sankey cash-flow diagram, Monte Carlo retirement simulation, Roth-vs-traditional modeler, crypto sell-decision (unrealized gain + LTCG-if-sold), one-tap balance-drift reconciliation, scenario diff table, and crypto-vs-market attribution split.
+
 Implemented beyond the original spec: emergency fund tracking with EF-first payoff sequencing, cash-flow view with savings rate, debt-budget-to-investing redirect, lump-sum payments, extra-payment annual growth, custom payoff ordering, per-debt payoff what-ifs, bad-decade stress testing, per-sleeve (crypto vs equities) volatility bands, multiple investment goals, personal spending-weighted inflation rate, forward-looking raise-vs-inflation projector, import preview with replace confirmation, guided onboarding, biometric app lock, SQLCipher database encryption with safe plaintext migration, share-sheet CSV export of tables, recurring-charge (subscription) detection, transaction search browser, month-over-month top-mover spending trends, inferred minimum payments from payment history, interest-rate CSV import, saved debt scenarios with chart comparison, weekly milestone notifications, and full JSON backup/restore.

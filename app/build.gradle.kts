@@ -57,7 +57,6 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.work.runtime)
-    implementation(libs.androidx.biometric)
     implementation(libs.androidx.security.crypto)
     implementation(libs.sqlcipher.android)
     implementation(libs.androidx.room.runtime)

@@ -239,7 +239,7 @@ fun SettingsScreen(vm: AppViewModel) {
                         onCheckedChange = { vm.setBiometricLock(it) },
                     )
                     Text(
-                        "Require fingerprint / face unlock on launch",
+                        "Require device unlock (PIN, pattern, or biometric) on launch",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(start = 8.dp),
                     )

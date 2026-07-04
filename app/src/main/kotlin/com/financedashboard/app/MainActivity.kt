@@ -1,10 +1,13 @@
 package com.financedashboard.app
 
+import android.app.Activity
+import android.app.KeyguardManager
 import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.LaunchedEffect
@@ -12,8 +15,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.core.content.ContextCompat
-import androidx.fragment.app.FragmentActivity
 import com.financedashboard.app.data.SettingsStore
 import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.layout.padding
@@ -73,13 +74,22 @@ private val destinations = listOf(
     Destination("more", "More", Icons.Filled.MoreHoriz),
 )
 
-class MainActivity : FragmentActivity() {
+/**
+ * Plain ComponentActivity. It must NOT be a FragmentActivity/AppCompatActivity:
+ * those reject the >16-bit request codes that Jetpack Compose's
+ * rememberLauncherForActivityResult generates ("Can only use lower 16 bits for
+ * requestCode"), which crashed every launcher in the app (CSV pickers, the
+ * notification-permission request). The app lock therefore uses the system
+ * keyguard via ActivityResult rather than androidx BiometricPrompt (which would
+ * require a FragmentActivity).
+ */
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             FinanceDashboardTheme {
-                BiometricGate(activity = this) {
+                AppLockGate {
                     AppScaffold()
                 }
             }
@@ -87,46 +97,35 @@ class MainActivity : FragmentActivity() {
     }
 }
 
-private val AUTHENTICATORS =
-    BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
-
 @Composable
-private fun BiometricGate(
-    activity: FragmentActivity,
-    content: @Composable () -> Unit,
-) {
-    // null = still reading the setting; avoids flashing data before the lock engages.
+private fun AppLockGate(content: @Composable () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val lockEnabled by produceState<Boolean?>(initialValue = null) {
-        value = SettingsStore(activity).biometricLock.first()
+        value = SettingsStore(context).biometricLock.first()
     }
     var unlocked by remember { mutableStateOf(false) }
 
+    val keyguard = remember { context.getSystemService(KeyguardManager::class.java) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) unlocked = true
+    }
+
     fun prompt() {
-        val biometricPrompt = BiometricPrompt(
-            activity,
-            ContextCompat.getMainExecutor(activity),
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    unlocked = true
-                }
-            },
-        )
-        val info = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Unlock Finance Dashboard")
-            .setAllowedAuthenticators(AUTHENTICATORS)
-            .build()
-        biometricPrompt.authenticate(info)
+        val secure = keyguard?.isDeviceSecure == true
+        if (!secure) {
+            unlocked = true // no PIN/biometric set on the device — don't lock the user out
+            return
+        }
+        @Suppress("DEPRECATION")
+        val intent = keyguard?.createConfirmDeviceCredentialIntent("Unlock Finance Dashboard", "")
+        if (intent != null) launcher.launch(intent) else unlocked = true
     }
 
     when {
         lockEnabled == null -> Box(Modifier.fillMaxSize().background(Fiscal.Background))
         lockEnabled == false || unlocked -> content()
         else -> {
-            LaunchedEffect(Unit) {
-                val canAuth = BiometricManager.from(activity).canAuthenticate(AUTHENTICATORS)
-                if (canAuth == BiometricManager.BIOMETRIC_SUCCESS) prompt()
-                else unlocked = true // no credential set up on device — don't lock the user out
-            }
+            LaunchedEffect(Unit) { prompt() }
             Column(
                 Modifier.fillMaxSize().background(Fiscal.Background),
                 verticalArrangement = Arrangement.Center,

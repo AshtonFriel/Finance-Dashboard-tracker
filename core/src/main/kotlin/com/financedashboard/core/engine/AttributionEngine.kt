@@ -25,6 +25,7 @@ object AttributionEngine {
         val endNet: Double,
         val cashSaved: Double,
         val marketChange: Double,
+        val cryptoChange: Double,
         val debtPrincipalPaid: Double,
         val assetRevaluation: Double,
         val residual: Double,
@@ -37,12 +38,15 @@ object AttributionEngine {
         "betterment", "sofi invest", "401", "brokerage", "crypto", "ira",
     )
 
+    private val cryptoHints = listOf("crypto", "btc", "bitcoin", "coinbase", "ethereum")
+
     fun attribute(
         balances: List<BalanceRecord>,
         transactions: List<TransactionRecord>,
         typeOf: (String) -> AccountType,
         from: LocalDate,
         to: LocalDate,
+        isCrypto: (String) -> Boolean = { name -> cryptoHints.any { name.lowercase().contains(it) } },
     ): Attribution {
         fun snapshot(onOrBefore: LocalDate): Map<String, Double> =
             balances.filter { it.date <= onOrBefore }
@@ -69,10 +73,10 @@ object AttributionEngine {
         }
 
         var cashSaved = 0.0
-        var marketChange = 0.0
         var debtPrincipalPaid = 0.0
         var assetReval = 0.0
-        var investmentDelta = 0.0
+        var equityDelta = 0.0
+        var cryptoDelta = 0.0
 
         for (acc in accounts) {
             val delta = (end[acc] ?: 0.0) - (start[acc] ?: 0.0)
@@ -81,17 +85,19 @@ object AttributionEngine {
                 // Debts are stored negative; paying down raises the balance toward 0,
                 // so a positive delta is principal paid.
                 AccountType.DEBT -> debtPrincipalPaid += delta
-                AccountType.INVESTMENT -> investmentDelta += delta
+                AccountType.INVESTMENT -> if (isCrypto(acc)) cryptoDelta += delta else equityDelta += delta
                 AccountType.ASSET, AccountType.UNKNOWN -> assetReval += delta
             }
         }
-        // Money moved into investments is "saved", not market growth.
+        // Money moved into investments is "saved", not market growth. Crypto
+        // contributions are rare here; contributions offset equities first.
         cashSaved += contributions
-        marketChange = investmentDelta - contributions
+        val marketChange = equityDelta - contributions
+        val cryptoChange = cryptoDelta
 
         val startNet = netWorth(start, typeOf)
         val endNet = netWorth(end, typeOf)
-        val explained = cashSaved + marketChange + debtPrincipalPaid + assetReval
+        val explained = cashSaved + marketChange + cryptoChange + debtPrincipalPaid + assetReval
         val residual = (endNet - startNet) - explained
 
         return Attribution(
@@ -99,6 +105,7 @@ object AttributionEngine {
             endNet = endNet,
             cashSaved = cashSaved,
             marketChange = marketChange,
+            cryptoChange = cryptoChange,
             debtPrincipalPaid = debtPrincipalPaid,
             assetRevaluation = assetReval,
             residual = residual,

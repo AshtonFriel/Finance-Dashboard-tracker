@@ -93,4 +93,30 @@ object CryptoLotEngine {
 
     fun realizedByYear(result: Result): Map<Int, Double> =
         result.realized.groupBy { it.date.year }.mapValues { (_, s) -> s.sumOf { it.gain } }
+
+    data class SellAnalysis(
+        val currentValue: Double,
+        val costBasis: Double,
+        val unrealizedGain: Double,
+        val ltcgTax: Double,
+        /** What you'd keep after long-term capital-gains tax if you sold everything now. */
+        val netProceeds: Double,
+    )
+
+    /**
+     * "If I sold at this value, what's the tax hit?" Uses the remaining lots'
+     * cost basis and a user-editable long-term capital-gains rate (kept offline
+     * as a setting, so no live tax API is needed).
+     */
+    fun sellAnalysis(result: Result, currentValue: Double, ltcgRatePct: Double): SellAnalysis {
+        val gain = currentValue - result.remainingCostBasis
+        val tax = gain.coerceAtLeast(0.0) * ltcgRatePct / 100.0
+        return SellAnalysis(
+            currentValue = currentValue,
+            costBasis = result.remainingCostBasis,
+            unrealizedGain = gain,
+            ltcgTax = tax,
+            netProceeds = currentValue - tax,
+        )
+    }
 }

@@ -32,6 +32,10 @@ object RecurringDetector {
         val lastCharge: LocalDate,
         /** No charge within 1.5x the expected interval → likely ended. */
         val possiblyCancelled: Boolean,
+        /** Earliest charge amount in the detection window, for price-creep. */
+        val earliestAmount: Double,
+        /** Fractional change from earliest to current amount (0.2 = +20%). */
+        val priceChangePct: Double,
     )
 
     private val transferCategories = setOf("Transfer", "Credit Card Payment", "Loan Repayment", "Paychecks", "Paycheck")
@@ -88,6 +92,7 @@ object RecurringDetector {
 
         val last = sorted.last().date
         val daysSince = ChronoUnit.DAYS.between(last, asOf)
+        val earliest = abs(sorted.first().amount)
         return Subscription(
             merchant = sorted.last().merchant,
             cadence = cadence,
@@ -96,8 +101,15 @@ object RecurringDetector {
             occurrences = sorted.size,
             lastCharge = last,
             possiblyCancelled = daysSince > cadence.highDays * 1.5,
+            earliestAmount = earliest,
+            priceChangePct = if (earliest > 0.005) (medianAmount - earliest) / earliest else 0.0,
         )
     }
+
+    /** Subscriptions whose current price is meaningfully above their earliest in-window price. */
+    fun priceHikes(subscriptions: List<Subscription>, minIncrease: Double = 0.10): List<Subscription> =
+        subscriptions.filter { !it.possiblyCancelled && it.priceChangePct >= minIncrease }
+            .sortedByDescending { it.priceChangePct }
 
     /** Total monthly commitment from still-active subscriptions. */
     fun monthlyTotal(subscriptions: List<Subscription>): Double =

@@ -159,6 +159,12 @@ class FinanceRepository(private val db: AppDatabase) {
     fun spendingByCategory(since: LocalDate): Flow<List<CategoryTotal>> =
         db.transactionDao().spendingByCategory(since.toEpochDay())
 
+    /** Discretionary spending in the current calendar month so far. */
+    val currentMonthSpending: Flow<Double> =
+        db.transactionDao().expensesSince(LocalDate.now().withDayOfMonth(1).toEpochDay()).map { rows ->
+            rows.sumOf { -it.amount }
+        }
+
     val transactionCount: Flow<Int> = db.transactionDao().count()
 
     fun recentTransactions(limit: Int) = db.transactionDao().recent(limit)

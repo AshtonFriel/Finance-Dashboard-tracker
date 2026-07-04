@@ -558,13 +558,42 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         )
     }.asState(null)
 
-    // ---- Import health / data quality ----
+    // ---- Import health / data quality (adjustments merged in so fixes stick) ----
+    private val adjustmentRecords = settings.balanceAdjustments.map { adjustments ->
+        adjustments.map {
+            com.financedashboard.core.model.TransactionRecord(
+                java.time.LocalDate.ofEpochDay(it.epochDay), "Manual adjustment", "Adjustment",
+                it.account, "", "", it.amount, "", "Me",
+            )
+        }
+    }
+
     val importHealth = combine(
-        repo.allBalanceRecords, repo.allTransactionRecords, repo.accountTypeOf,
-    ) { balances, txs, typeOf ->
+        repo.allBalanceRecords, repo.allTransactionRecords, repo.accountTypeOf, adjustmentRecords,
+    ) { balances, txs, typeOf, adjustments ->
         if (balances.isEmpty() && txs.isEmpty()) null
-        else com.financedashboard.core.engine.ImportHealthEngine.analyze(balances, txs, typeOf)
+        else com.financedashboard.core.engine.ImportHealthEngine.analyze(balances, txs + adjustments, typeOf)
     }.flowOn(Dispatchers.Default).asState(null)
+
+    fun applyBalanceAdjustment(account: String, amount: Double) = safeLaunch {
+        settings.addBalanceAdjustment(
+            com.financedashboard.app.data.SettingsStore.BalanceAdjustment(account, java.time.LocalDate.now().toEpochDay(), amount)
+        )
+    }
+
+    // ---- Interest paid ledger ----
+    val interestLedger = combine(debtExtraction, repo.allBalanceRecords, repo.allTransactionRecords) { ex, balances, txs ->
+        val accounts = ex.active.map { it.accountName }
+        com.financedashboard.core.engine.InterestLedgerEngine.compute(accounts, balances, txs)
+    }.flowOn(Dispatchers.Default).asState(emptyList())
+
+    // ---- Tax & simulation settings ----
+    val ltcgRatePct = settings.ltcgRatePct.asState(15.0)
+    val retirementRatePct = settings.retirementRatePct.asState(22.0)
+    val mcVolatilityPct = settings.mcVolatilityPct.asState(15.0)
+    fun setLtcgRatePct(v: Double) = safeLaunch { settings.setLtcgRatePct(v) }
+    fun setRetirementRatePct(v: Double) = safeLaunch { settings.setRetirementRatePct(v) }
+    fun setMcVolatilityPct(v: Double) = safeLaunch { settings.setMcVolatilityPct(v) }
 
     // ---- Subscription price hikes ----
     val priceHikes = repo.recurringCharges.map {
@@ -651,6 +680,56 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun removeSinkingFund(name: String) = safeLaunch {
         settings.setSinkingFunds(sinkingFunds.value.filter { it.name != name })
     }
+
+    // ---- Safe to spend ----
+    val safeToSpend = combine(
+        avgMonthlyIncome, recurringMonthlyTotal, repo.currentMonthSpending,
+        combine(debtInputs, extraMonthly, efMonthlySaving, monthlyContribution) { debts, extra, ef, contrib ->
+            debts.filter { it.includeInPlan }.sumOf { it.minPayment } + extra + ef + contrib
+        },
+    ) { income, recurring, spent, planned ->
+        com.financedashboard.core.engine.SafeToSpendEngine.compute(income, recurring, planned, spent)
+    }.flowOn(Dispatchers.Default).asState(null)
+
+    // ---- Crypto sell analysis ----
+    val cryptoSell = combine(cryptoLots, investmentAccounts, ltcgRatePct) { lots, accs, rate ->
+        if (lots == null) null
+        else {
+            val currentValue = accs.filter { a -> listOf("crypto", "btc", "coinbase").any { a.name.lowercase().contains(it) } }
+                .sumOf { it.latestBalance }.takeIf { it > 0 } ?: lots.remainingCostBasis
+            com.financedashboard.core.engine.CryptoLotEngine.sellAnalysis(lots, currentValue, rate)
+        }
+    }.flowOn(Dispatchers.Default).asState(null)
+
+    // ---- Monte Carlo retirement ----
+    val monteCarlo = combine(
+        investmentAccounts, monthlyContribution, expectedReturnPct,
+        combine(mcVolatilityPct, retirementYears, fire) { vol, years, f -> Triple(vol, years, f?.fireNumber ?: 1_000_000.0) },
+    ) { accs, contrib, ret, (vol, years, goal) ->
+        com.financedashboard.core.engine.MonteCarloEngine.simulate(
+            principal = accs.sumOf { it.latestBalance },
+            monthlyContribution = contrib,
+            annualReturnPct = ret,
+            annualVolatilityPct = vol,
+            years = years,
+            goal = goal,
+            runs = 1000,
+        )
+    }.flowOn(Dispatchers.Default).asState(null)
+
+    // ---- Roth vs traditional ----
+    val rothComparison = combine(
+        monthlyContribution, marginalTaxPct, retirementRatePct, expectedReturnPct, retirementYears,
+    ) { contrib, current, retire, ret, years ->
+        if (contrib <= 0) null
+        else com.financedashboard.core.engine.RothVsTraditionalEngine.compare(
+            annualGrossContribution = contrib * 12,
+            currentMarginalRatePct = if (current > 0) current else 24.0,
+            retirementRatePct = retire,
+            annualReturnPct = ret,
+            years = years,
+        )
+    }.flowOn(Dispatchers.Default).asState(null)
 
     // ---- Security ----
     val biometricLock = settings.biometricLock.asState(false)

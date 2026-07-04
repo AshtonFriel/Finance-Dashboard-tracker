@@ -19,6 +19,9 @@ object ImportHealthEngine {
         val severity: Severity,
         val title: String,
         val detail: String,
+        /** For reconciliation findings: the account and the adjustment that would close the gap. */
+        val account: String? = null,
+        val suggestedAdjustment: Double? = null,
     )
 
     data class Report(val findings: List<Finding>) {
@@ -80,6 +83,8 @@ object ImportHealthEngine {
                     "“$account” doesn't reconcile",
                     "Balance moved ${money(balanceDelta)} but transactions sum to ${money(txSum)} " +
                         "(off by ${money(mismatch)}). Some transactions may be missing or miscategorized.",
+                    account = account,
+                    suggestedAdjustment = balanceDelta - txSum,
                 )
             }
         }

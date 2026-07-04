@@ -51,6 +51,10 @@ class SettingsStore(private val context: Context) {
         val withdrawalRatePct = doublePreferencesKey("fire_withdrawal_rate")
         val marginalTaxPct = doublePreferencesKey("marginal_tax_pct")
         val retirementContribByYear = stringPreferencesKey("retirement_contrib_by_year")
+        val ltcgRatePct = doublePreferencesKey("crypto_ltcg_rate")
+        val retirementRatePct = doublePreferencesKey("retirement_tax_rate")
+        val mcVolatilityPct = doublePreferencesKey("mc_volatility")
+        val balanceAdjustments = stringPreferencesKey("balance_adjustments")
     }
 
     // Record separator / field separator for serialized lists (never appear in user text).
@@ -185,6 +189,37 @@ class SettingsStore(private val context: Context) {
         val current = retirementContribByYear.first().toMutableMap()
         current[year] = amount
         prefs[Keys.retirementContribByYear] = current.entries.joinToString(RS.toString()) { "${it.key}$FS${it.value}" }
+    }
+
+    // ---- Tax & simulation assumptions ----
+    val ltcgRatePct: Flow<Double> = context.dataStore.data.map { it[Keys.ltcgRatePct] ?: 15.0 }
+    val retirementRatePct: Flow<Double> = context.dataStore.data.map { it[Keys.retirementRatePct] ?: 22.0 }
+    val mcVolatilityPct: Flow<Double> = context.dataStore.data.map { it[Keys.mcVolatilityPct] ?: 15.0 }
+    suspend fun setLtcgRatePct(v: Double) = context.dataStore.edit { it[Keys.ltcgRatePct] = v }
+    suspend fun setRetirementRatePct(v: Double) = context.dataStore.edit { it[Keys.retirementRatePct] = v }
+    suspend fun setMcVolatilityPct(v: Double) = context.dataStore.edit { it[Keys.mcVolatilityPct] = v }
+
+    /** Manual reconciliation adjustments, kept in prefs so they survive re-imports. */
+    data class BalanceAdjustment(val account: String, val epochDay: Long, val amount: Double)
+
+    val balanceAdjustments: Flow<List<BalanceAdjustment>> = context.dataStore.data.map { prefs ->
+        (prefs[Keys.balanceAdjustments] ?: "").split(RS).filter { it.isNotBlank() }.mapNotNull { rec ->
+            val p = rec.split(FS)
+            if (p.size < 3) return@mapNotNull null
+            val day = p[1].toLongOrNull(); val amt = p[2].toDoubleOrNull()
+            if (day != null && amt != null) BalanceAdjustment(p[0], day, amt) else null
+        }
+    }
+
+    suspend fun addBalanceAdjustment(adj: BalanceAdjustment) = context.dataStore.edit { prefs ->
+        val current = (prefs[Keys.balanceAdjustments] ?: "")
+        val rec = "${adj.account}$FS${adj.epochDay}$FS${adj.amount}"
+        prefs[Keys.balanceAdjustments] = if (current.isBlank()) rec else "$current$RS$rec"
+    }
+
+    suspend fun clearBalanceAdjustments(account: String) = context.dataStore.edit { prefs ->
+        prefs[Keys.balanceAdjustments] = balanceAdjustments.first().filter { it.account != account }
+            .joinToString(RS.toString()) { "${it.account}$FS${it.epochDay}$FS${it.amount}" }
     }
 
     // ---- Security ----

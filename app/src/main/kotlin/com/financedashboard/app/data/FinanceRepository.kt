@@ -33,6 +33,12 @@ data class MonthlyNetWorth(
     val net: Double get() = assets - debts
 }
 
+/** Categories that aren't real discretionary spending (transfers, debt payments, reconciliations). */
+val NON_SPENDING_CATEGORIES = setOf(
+    "Transfer", "Credit Card Payment", "Loan Repayment",
+    "Balance Adjustments", "Balance Adjustment", "Adjustment",
+)
+
 class FinanceRepository(private val db: AppDatabase) {
 
     val accounts: Flow<List<AccountUi>> =
@@ -320,7 +326,7 @@ class FinanceRepository(private val db: AppDatabase) {
         val incomeCats = IncomeAggregator.PAYCHECK_CATEGORIES
         fun monthKey(epochDay: Long) = YearMonth.from(LocalDate.ofEpochDay(epochDay))
         val spendByMonth = expenses.filter {
-            it.amount < 0 && it.category !in setOf("Transfer", "Credit Card Payment", "Loan Repayment")
+            it.amount < 0 && it.category !in NON_SPENDING_CATEGORIES
         }.groupBy { monthKey(it.epochDay) }.mapValues { (_, t) -> t.sumOf { -it.amount } }
         val incomeByMonth = expenses.filter { it.category in incomeCats && it.amount > 0 }
             .groupBy { monthKey(it.epochDay) }.mapValues { (_, t) -> t.sumOf { it.amount } }

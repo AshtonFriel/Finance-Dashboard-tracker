@@ -38,7 +38,10 @@ object RecurringDetector {
         val priceChangePct: Double,
     )
 
-    private val transferCategories = setOf("Transfer", "Credit Card Payment", "Loan Repayment", "Paychecks", "Paycheck")
+    private val transferCategories = setOf(
+        "Transfer", "Credit Card Payment", "Loan Repayment", "Paychecks", "Paycheck",
+        "Balance Adjustments", "Balance Adjustment", "Adjustment",
+    )
 
     /** Strip trailing store numbers / city fragments so "Store #123" and "Store" group together. */
     fun normalizeMerchant(raw: String): String =

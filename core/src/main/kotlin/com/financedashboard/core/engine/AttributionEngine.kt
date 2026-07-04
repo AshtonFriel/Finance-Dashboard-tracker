@@ -53,9 +53,17 @@ object AttributionEngine {
                 .groupBy { it.account }
                 .mapValues { (_, rows) -> rows.maxBy { it.date }.balance }
 
-        val start = snapshot(from)
+        val startAtFrom = snapshot(from)
         val end = snapshot(to)
-        val accounts = (start.keys + end.keys)
+
+        // An account that first appears mid-window (a newly *linked* loan or
+        // account, not real new money) would otherwise count its whole balance
+        // as a change. Baseline such accounts at their first-ever snapshot so
+        // only movement while tracked is attributed.
+        val firstEver = balances.groupBy { it.account }.mapValues { (_, rows) -> rows.minBy { it.date }.balance }
+        val accounts = (startAtFrom.keys + end.keys + firstEver.keys)
+        val start = accounts.associateWith { startAtFrom[it] ?: firstEver[it] ?: 0.0 }
+
         val windowTxs = transactions.filter { it.date in from..to }
 
         // Investment contributions = money that entered investments this period,

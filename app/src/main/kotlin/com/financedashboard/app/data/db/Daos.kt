@@ -81,7 +81,7 @@ interface TransactionDao {
         """
         SELECT category, SUM(-amount) AS total FROM transactions
         WHERE epochDay >= :sinceEpochDay AND amount < 0
-          AND category NOT IN ('Transfer', 'Credit Card Payment', 'Loan Repayment')
+          AND category NOT IN ('Transfer', 'Credit Card Payment', 'Loan Repayment', 'Balance Adjustments', 'Balance Adjustment', 'Adjustment')
         GROUP BY category ORDER BY total DESC
         """
     )
@@ -91,7 +91,7 @@ interface TransactionDao {
         """
         SELECT * FROM transactions
         WHERE epochDay >= :sinceEpochDay AND amount < 0
-          AND category NOT IN ('Transfer', 'Credit Card Payment', 'Loan Repayment')
+          AND category NOT IN ('Transfer', 'Credit Card Payment', 'Loan Repayment', 'Balance Adjustments', 'Balance Adjustment', 'Adjustment')
         """
     )
     fun expensesSince(sinceEpochDay: Long): Flow<List<TransactionEntity>>

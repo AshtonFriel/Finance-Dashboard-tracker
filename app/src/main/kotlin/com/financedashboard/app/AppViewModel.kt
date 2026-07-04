@@ -882,7 +882,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val to = java.time.LocalDate.of(year, 12, 31)
         val yearTxs = txs.filter { it.date.year == year }
         val income = yearTxs.filter { it.category in IncomeAggregator.PAYCHECK_CATEGORIES && it.amount > 0 }.sumOf { it.amount }
-        val excluded = setOf("Transfer", "Credit Card Payment", "Loan Repayment")
+        val excluded = com.financedashboard.app.data.NON_SPENDING_CATEGORIES
         val spendTxs = yearTxs.filter { it.amount < 0 && it.category !in excluded }
         val spending = spendTxs.sumOf { -it.amount }
         val nw = com.financedashboard.core.engine.NetWorthAggregator.monthlySeries(balances)

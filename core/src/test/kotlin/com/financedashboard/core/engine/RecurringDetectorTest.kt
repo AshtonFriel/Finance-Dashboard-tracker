@@ -74,4 +74,31 @@ class RecurringDetectorTest {
             }
         assertTrue(RecurringDetector.detect(txs, LocalDate.parse("2026-06-01")).isEmpty())
     }
+
+    @Test
+    fun `debt servicing and variable spend are not subscriptions`() {
+        val dates = listOf("2026-01-05", "2026-02-05", "2026-03-05", "2026-04-05", "2026-05-05")
+        val txs = dates.flatMap {
+            listOf(
+                tx("Auto Payment", -387.0, it, "Auto Payment"),        // handled by debt engine
+                tx("Aidvantage", -118.0, it, "Student Loans"),          // handled by debt engine
+                tx("McDonald's", -11.0, it, "Restaurants & Bars"),      // variable habit, not a bill
+                tx("Cash Advance Fee", -10.0, it, "Financial Fees"),    // fee, not a subscription
+            )
+        }
+        assertTrue(RecurringDetector.detect(txs, LocalDate.parse("2026-05-20")).isEmpty())
+    }
+
+    @Test
+    fun `descriptor drift for the same payee merges into one subscription`() {
+        // Bank re-labels the same therapist mid-history; both must count as one.
+        val old = listOf("2026-01-06", "2026-02-06", "2026-03-06").map { tx("Gracefultherapy Gracefultil", -30.0, it, "Personal") }
+        val new = listOf("2026-04-06", "2026-05-06", "2026-06-06").map { tx("Graceful Therapy", -30.0, it, "Personal") }
+        val subs = RecurringDetector.detect(old + new, LocalDate.parse("2026-06-20"))
+        assertEquals(1, subs.size)
+        val s = subs.first()
+        assertEquals(6, s.occurrences)
+        assertTrue(!s.possiblyCancelled)                  // the merge keeps the latest charge date
+        assertEquals(LocalDate.parse("2026-06-06"), s.lastCharge)
+    }
 }

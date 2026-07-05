@@ -10,6 +10,8 @@ object AccountClassifier {
 
     private val investmentHints = listOf(
         "401(k)", "401k", "ira", "roth", "brokerage", "crypto", "robo", "invest", "hsa", "529",
+        "tod", "taxable", "securities", "vanguard", "fidelity", "schwab", "wealthfront",
+        "betterment", "robinhood", "coinbase",
     )
     // Common lenders/servicers so unlabeled accounts classify sensibly.
     private val debtHints = listOf(

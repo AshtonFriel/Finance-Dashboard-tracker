@@ -38,9 +38,28 @@ object RecurringDetector {
         val priceChangePct: Double,
     )
 
-    private val transferCategories = setOf(
+    /**
+     * Categories excluded from subscription detection:
+     *  - transfers / paychecks / balance adjustments: not spending at all;
+     *  - debt servicing (loan, card, auto, student-loan payments): these are
+     *    already modeled by the debt/amortization engine and counted as minimum
+     *    payments in "safe to spend", so surfacing them again as subscriptions
+     *    would double-count the same dollars;
+     *  - inherently variable spend (dining, coffee, groceries, gas, fees, ATM,
+     *    rideshare/transit/parking, travel): a stable weekly fast-food habit is
+     *    not a fixed commitment, and calling it a "subscription" overstates the
+     *    recurring monthly total.
+     */
+    private val excludedCategories = setOf(
+        // transfers & non-spending
         "Transfer", "Credit Card Payment", "Loan Repayment", "Paychecks", "Paycheck",
         "Balance Adjustments", "Balance Adjustment", "Adjustment",
+        // debt servicing (handled by the debt engine)
+        "Auto Payment", "Student Loans",
+        // inherently variable / discretionary spend
+        "Restaurants & Bars", "Coffee Shops", "Groceries", "Gas", "Cash & ATM",
+        "Financial Fees", "Taxi & Ride Shares", "Public Transit", "Parking & Tolls",
+        "Travel & Vacation",
     )
 
     /** Strip trailing store numbers / city fragments so "Store #123" and "Store" group together. */
@@ -49,6 +68,31 @@ object RecurringDetector {
             .replace(Regex("""#?\d[\d\-*]*"""), " ")
             .replace(Regex("""\s+"""), " ")
             .trim()
+
+    /** Collapse a normalized merchant to letters/digits only, for prefix comparison. */
+    private fun collapse(normalized: String): String = normalized.replace(Regex("""[^a-z0-9]"""), "")
+
+    /**
+     * Descriptor-drift merging: banks re-label the same payee over time
+     * ("Graceful Therapy" → "Gracefultherapy Gracefultil"), which would otherwise
+     * split one subscription into two rows — and falsely mark the older label
+     * "cancelled". Group two normalized merchants when the shorter's collapsed
+     * form is a prefix of the longer's and is long enough (≥7 chars) that the
+     * match isn't coincidental. Returns a map from each key to its canonical key.
+     */
+    private fun canonicalKeys(keys: Collection<String>): Map<String, String> {
+        val ordered = keys.distinct().sortedBy { collapse(it).length }
+        val canonical = LinkedHashMap<String, String>()
+        for (k in ordered) {
+            val ck = collapse(k)
+            val parent = canonical.keys.firstOrNull { existing ->
+                val ce = collapse(existing)
+                ce.length >= 7 && ck.startsWith(ce)
+            }
+            canonical[k] = parent?.let { canonical[it] } ?: k
+        }
+        return canonical
+    }
 
     fun detect(
         transactions: List<TransactionRecord>,
@@ -60,11 +104,13 @@ object RecurringDetector {
     ): List<Subscription> {
         val cutoff = asOf.minusMonths(windowMonths)
         val expenses = transactions.filter {
-            it.amount < 0 && it.category !in transferCategories && it.date >= cutoff
+            it.amount < 0 && it.category !in excludedCategories && it.date >= cutoff
         }
-        return expenses
-            .groupBy { normalizeMerchant(it.merchant) }
-            .mapNotNull { (_, txs) -> subscriptionFor(txs, asOf, minOccurrences) }
+        val byMerchant = expenses.groupBy { normalizeMerchant(it.merchant) }
+        val canonical = canonicalKeys(byMerchant.keys)
+        return byMerchant.entries
+            .groupBy({ canonical.getValue(it.key) }, { it.value })
+            .mapNotNull { (_, groups) -> subscriptionFor(groups.flatten(), asOf, minOccurrences) }
             .sortedByDescending { it.monthlyEquivalent }
     }
 

@@ -7,6 +7,7 @@ import com.financedashboard.app.data.db.DebtAssumptionEntity
 import com.financedashboard.app.data.db.ManualIncomeEntity
 import com.financedashboard.core.backup.BackupCodec
 import com.financedashboard.core.backup.BackupCodec.Backup
+import com.financedashboard.core.engine.EmergencyFundEngine
 import com.financedashboard.core.engine.IncomeAggregator
 import com.financedashboard.core.engine.InflationEngine
 import com.financedashboard.core.model.AccountType
@@ -128,15 +129,23 @@ class FinanceRepository(private val db: AppDatabase) {
                 .toSortedMap().toList().takeLast(months)
         }
 
-    /** Average take-home from paycheck deposits over the trailing 6 full months. */
+    /**
+     * Typical take-home from paycheck deposits per month. Uses the MEDIAN of the
+     * trailing 12 full months rather than the mean: pay cadence (a 3-paycheck
+     * month, an occasional bonus or retro payment) produces outlier months that
+     * badly inflate a mean, making the app overstate income. The median reflects
+     * a normal month, which is what the emergency-fund and safe-to-spend cards
+     * should reason about.
+     */
     val avgMonthlyPaychecks: Flow<Double> =
         db.transactionDao().incomeTransactions(IncomeAggregator.PAYCHECK_CATEGORIES.toList()).map { txs ->
             val current = YearMonth.now()
-            val byMonth = txs.groupBy { YearMonth.from(LocalDate.ofEpochDay(it.epochDay)) }
+            val monthTotals = txs.groupBy { YearMonth.from(LocalDate.ofEpochDay(it.epochDay)) }
                 .filterKeys { it < current }
                 .mapValues { (_, list) -> list.sumOf { it.amount } }
-                .toSortedMap().toList().takeLast(6)
-            if (byMonth.isEmpty()) 0.0 else byMonth.sumOf { it.second } / byMonth.size
+                .toSortedMap().toList().takeLast(12)
+                .map { it.second }
+            EmergencyFundEngine.typicalMonthlyExpenses(monthTotals)
         }
 
     /** Latest positive balances across cash accounts — the emergency-fund base. */

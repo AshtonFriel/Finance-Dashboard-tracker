@@ -1,6 +1,7 @@
 package com.financedashboard.app.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -94,6 +95,7 @@ fun AccountsScreen(vm: AppViewModel) {
             }
         }
 
+        BudgetsSection(vm)
         RecurringChargesSection(vm)
         TopMoversSection(vm)
         TransactionBrowserSection(vm)
@@ -122,6 +124,111 @@ fun AccountsScreen(vm: AppViewModel) {
                 color = chart.secondaryInk,
             )
         }
+    }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun BudgetsSection(vm: AppViewModel) {
+    val summary by vm.budgetSummary.collectAsState()
+    val spending by vm.spendingLastYear.collectAsState()
+    val s = summary
+    var adding by remember { mutableStateOf(false) }
+
+    SectionTitle("Monthly budgets")
+    FiscalCard {
+        val lines = s?.lines ?: emptyList()
+        if (lines.isEmpty()) {
+            Text(
+                "Set a monthly limit on a category to track spending against it.",
+                style = MaterialTheme.typography.bodySmall, color = Fiscal.TextMuted,
+            )
+        } else {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(
+                    "${fullCurrency(s!!.totalSpent)} of ${fullCurrency(s.totalLimit)} budgeted",
+                    style = MaterialTheme.typography.titleMedium, color = Fiscal.TextPrimary,
+                )
+                if (s.overCount > 0) {
+                    Text("${s.overCount} over", style = MaterialTheme.typography.labelMedium, color = Fiscal.Coral)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            for (line in lines) {
+                val color = when (line.status) {
+                    com.financedashboard.core.engine.BudgetEngine.Status.OVER -> Fiscal.Coral
+                    com.financedashboard.core.engine.BudgetEngine.Status.NEAR -> Fiscal.Amber
+                    com.financedashboard.core.engine.BudgetEngine.Status.UNDER -> Fiscal.Accent
+                }
+                Column(Modifier.padding(vertical = 4.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(line.category, style = MaterialTheme.typography.bodyMedium, color = Fiscal.TextPrimary, modifier = Modifier.weight(1f))
+                        Text(
+                            "${fullCurrency(line.spent)} / ${fullCurrency(line.limit)}",
+                            style = MaterialTheme.typography.labelMedium, color = Fiscal.TextSecondary,
+                        )
+                        TextButton(
+                            onClick = { vm.setCategoryBudget(line.category, 0.0) },
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp),
+                        ) { Text("✕", color = Fiscal.TextMuted) }
+                    }
+                    FiscalBar(progress = line.fractionUsed.toFloat(), height = 7.dp, color = color)
+                    val note = when (line.status) {
+                        com.financedashboard.core.engine.BudgetEngine.Status.OVER ->
+                            "${fullCurrency(-line.remaining)} over budget"
+                        com.financedashboard.core.engine.BudgetEngine.Status.NEAR ->
+                            "on pace for ${fullCurrency(line.projectedSpend)} this month"
+                        com.financedashboard.core.engine.BudgetEngine.Status.UNDER ->
+                            "${fullCurrency(line.remaining)} left"
+                    }
+                    Text(note, style = MaterialTheme.typography.labelSmall, color = color)
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        TextButton(onClick = { adding = true }) { Text("+ Set a budget", color = Fiscal.Accent) }
+    }
+
+    if (adding) {
+        val categories = spending.map { it.category }.distinct()
+        var selected by remember { mutableStateOf(categories.firstOrNull() ?: "") }
+        var amount by remember { mutableStateOf("") }
+        var expanded by remember { mutableStateOf(false) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { adding = false },
+            title = { Text("Set a monthly budget") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box {
+                        TextButton(onClick = { expanded = true }) {
+                            Text(selected.ifBlank { "Choose category" }, color = Fiscal.TextPrimary)
+                        }
+                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            for (c in categories) {
+                                DropdownMenuItem(text = { Text(c) }, onClick = { selected = c; expanded = false })
+                            }
+                        }
+                    }
+                    androidx.compose.material3.OutlinedTextField(
+                        value = amount,
+                        onValueChange = { amount = it },
+                        label = { Text("Monthly limit ($)") },
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                        ),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val v = amount.replace(",", "").replace("$", "").toDoubleOrNull()
+                    if (selected.isNotBlank() && v != null && v > 0) vm.setCategoryBudget(selected, v)
+                    adding = false
+                }) { Text("Set") }
+            },
+            dismissButton = { TextButton(onClick = { adding = false }) { Text("Cancel") } },
+        )
     }
 }
 

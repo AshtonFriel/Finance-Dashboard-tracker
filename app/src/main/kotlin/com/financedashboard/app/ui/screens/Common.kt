@@ -19,7 +19,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.collectAsState
+import com.financedashboard.app.AppViewModel
 import com.financedashboard.app.ui.charts.fullCurrency
+import com.financedashboard.app.ui.theme.Fiscal
 import com.financedashboard.app.ui.theme.LocalChartColors
 
 @Composable
@@ -47,6 +50,54 @@ fun StatTile(
 @Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     Eyebrow(text, modifier = modifier.padding(top = 10.dp, bottom = 2.dp))
+}
+
+/**
+ * "Since last import" summary, shown once after an import that actually changed
+ * something. Turns a data replace into a short statement of what moved.
+ */
+@Composable
+fun ImportDigestDialog(vm: AppViewModel) {
+    val digest by vm.importDigest.collectAsState()
+    val d = digest ?: return
+    if (!d.hasChanges) return
+
+    // Debts stored positive: a drop is a paydown (good). Net worth up is good.
+    fun signColor(delta: Double, goodWhenUp: Boolean): Color {
+        if (kotlin.math.abs(delta) < 0.5) return Fiscal.TextSecondary
+        val up = delta > 0
+        return if (up == goodWhenUp) Fiscal.Accent else Fiscal.Coral
+    }
+    AlertDialog(
+        onDismissRequest = { vm.dismissImportDigest() },
+        title = { Text("Since your last import") },
+        text = {
+            Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                if (d.newTransactions > 0) {
+                    Text("${d.newTransactions} new transactions imported",
+                        style = MaterialTheme.typography.bodyMedium, color = Fiscal.TextPrimary)
+                }
+                DigestRow("Net worth", d.netWorthDelta, signColor(d.netWorthDelta, goodWhenUp = true))
+                DigestRow("Debt", d.debtDelta, signColor(d.debtDelta, goodWhenUp = false))
+                DigestRow("Liquid cash", d.cashDelta, signColor(d.cashDelta, goodWhenUp = true))
+                if (d.daysSincePrevious > 0) {
+                    Text("${d.daysSincePrevious} days since your last import",
+                        style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { vm.dismissImportDigest() }) { Text("Got it") } },
+    )
+}
+
+@Composable
+private fun DigestRow(label: String, delta: Double, color: Color) {
+    if (kotlin.math.abs(delta) < 0.5) return
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = Fiscal.TextPrimary)
+        Text((if (delta >= 0) "+" else "") + fullCurrency(delta),
+            style = MaterialTheme.typography.bodyMedium, color = color, fontWeight = FontWeight.SemiBold)
+    }
 }
 
 @Composable

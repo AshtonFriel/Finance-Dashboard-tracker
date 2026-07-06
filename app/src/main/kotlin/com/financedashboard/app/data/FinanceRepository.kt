@@ -180,6 +180,12 @@ class FinanceRepository(private val db: AppDatabase) {
             rows.sumOf { -it.amount }
         }
 
+    /** Current-calendar-month spend per category (positive totals), for budgets. */
+    val currentMonthSpendByCategory: Flow<Map<String, Double>> =
+        db.transactionDao().expensesSince(LocalDate.now().withDayOfMonth(1).toEpochDay()).map { rows ->
+            rows.groupBy { it.category }.mapValues { (_, txs) -> txs.sumOf { -it.amount } }
+        }
+
     val transactionCount: Flow<Int> = db.transactionDao().count()
 
     fun recentTransactions(limit: Int) = db.transactionDao().recent(limit)

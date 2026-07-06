@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.financedashboard.app.AppViewModel
+import com.financedashboard.app.ui.charts.LineChart
 import com.financedashboard.app.ui.charts.Series
 import com.financedashboard.app.ui.charts.StackedAreaChart
 import com.financedashboard.app.ui.charts.compactCurrency
@@ -176,11 +177,15 @@ fun DashboardScreen(vm: AppViewModel, navController: NavHostController) {
             }
         }
 
+        HealthScoreSection(vm)
+
         EmergencyFundSection(vm)
 
         SinkingFundsSection(vm)
 
         SafeToSpendSection(vm)
+
+        CashFlowForecastSection(vm)
 
         CashFlowSection(vm)
 
@@ -539,6 +544,90 @@ private fun SafeToSpendSection(vm: AppViewModel) {
                 "planned debt/savings ${fullCurrency(r.plannedTransfers)} − spent ${fullCurrency(r.spentSoFar)}",
             style = MaterialTheme.typography.labelSmall,
             color = Fiscal.TextMuted,
+        )
+    }
+}
+
+@Composable
+private fun HealthScoreSection(vm: AppViewModel) {
+    val health by vm.financialHealth.collectAsState()
+    val h = health ?: return
+    fun scoreColor(s: Int) = when {
+        s >= 80 -> Fiscal.Accent
+        s >= 60 -> Fiscal.Amber
+        else -> Fiscal.Coral
+    }
+    Eyebrow("Financial health", modifier = Modifier.padding(top = 6.dp))
+    FiscalCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.width(96.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "${h.score}",
+                    fontFamily = com.financedashboard.app.ui.theme.SpaceGrotesk,
+                    fontWeight = FontWeight.W700,
+                    style = MaterialTheme.typography.displaySmall,
+                    color = scoreColor(h.score),
+                )
+                Text("grade ${h.grade}", style = MaterialTheme.typography.labelMedium, color = Fiscal.TextSecondary)
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                h.components.forEach { c ->
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(c.label, style = MaterialTheme.typography.labelMedium, color = Fiscal.TextPrimary)
+                            Text(c.detail, style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted)
+                        }
+                        FiscalBar(progress = c.score / 100f, height = 6.dp, color = scoreColor(c.score))
+                    }
+                }
+            }
+        }
+        Text(
+            "One score from debt-to-income, savings rate, emergency-fund runway, and net-worth trend.",
+            style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted,
+            modifier = Modifier.padding(top = 10.dp),
+        )
+    }
+}
+
+@Composable
+private fun CashFlowForecastSection(vm: AppViewModel) {
+    val forecast by vm.cashFlowForecast.collectAsState()
+    val f = forecast ?: return
+    if (f.points.size < 2) return
+    Eyebrow("Cash-flow forecast · next 45 days", modifier = Modifier.padding(top = 6.dp))
+    FiscalCard {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            MonthColumn(Modifier.weight(1f), fullCurrency(f.startingBalance), "today")
+            Box(Modifier.width(1.dp).height(40.dp).background(Fiscal.Hairline))
+            MonthColumn(
+                Modifier.weight(1f), fullCurrency(f.minBalance), "low point",
+                if (f.goesNegative) Fiscal.Coral else Fiscal.TextPrimary,
+            )
+            Box(Modifier.width(1.dp).height(40.dp).background(Fiscal.Hairline))
+            MonthColumn(Modifier.weight(1f), fullCurrency(f.endingBalance), "in 45 days")
+        }
+        Spacer(Modifier.height(12.dp))
+        val dates = f.points.map { it.date }
+        LineChart(
+            series = listOf(Series("Projected balance", f.points.map { it.balance }, Fiscal.Sky)),
+            xLabel = { i -> dates.getOrNull(i)?.format(monthFmt) ?: "" },
+            yMinOverride = minOf(0.0, f.minBalance),
+        )
+        val warn = f.goesNegative
+        Text(
+            if (warn)
+                "⚠ Balance is projected to dip below \$0 around ${f.minDate.format(payoffFmt)} — before your next paycheck lands."
+            else
+                "Lowest projected balance is ${fullCurrency(f.minBalance)} around ${f.minDate.format(payoffFmt)}.",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (warn) Fiscal.CoralTintText else Fiscal.TextMuted,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        Text(
+            "Projects liquid cash from your typical spending, recurring bills, debt payments, and paycheck timing.",
+            style = MaterialTheme.typography.labelSmall, color = Fiscal.TextMuted,
         )
     }
 }

@@ -21,6 +21,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -691,6 +692,118 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         com.financedashboard.core.engine.SafeToSpendEngine.compute(income, recurring, planned, spent)
     }.flowOn(Dispatchers.Default).asState(null)
 
+    // ---- Category budgets ----
+    val categoryBudgets = settings.categoryBudgets.asState(emptyList())
+    fun setCategoryBudget(category: String, limit: Double) = safeLaunch { settings.setCategoryBudget(category, limit) }
+
+    val budgetSummary = combine(
+        settings.categoryBudgets, repo.currentMonthSpendByCategory,
+    ) { budgets, spent ->
+        val today = java.time.LocalDate.now()
+        com.financedashboard.core.engine.BudgetEngine.evaluate(
+            budgets, spent, today.dayOfMonth, today.lengthOfMonth(),
+        )
+    }.flowOn(Dispatchers.Default).asState(null)
+
+    // ---- Financial health score ----
+    val financialHealth = combine(
+        combine(avgMonthlyIncome, avgMonthlyExpenses, debtInputs) { inc, exp, debts ->
+            Triple(inc, exp, debts.filter { it.includeInPlan }.sumOf { it.minPayment })
+        },
+        liquidCash, efTargetMonths, repo.monthlyNetWorth,
+    ) { (inc, exp, debtPay), cash, efMonths, nwSeries ->
+        val now = nwSeries.lastOrNull()?.net ?: 0.0
+        // 13 entries back ≈ same month one year ago (series is monthly, current last).
+        val yearAgo = if (nwSeries.size >= 13) nwSeries[nwSeries.size - 13].net else null
+        com.financedashboard.core.engine.FinancialHealthEngine.compute(
+            monthlyIncome = inc, monthlyExpenses = exp, monthlyDebtPayments = debtPay,
+            liquidCash = cash, emergencyFundTargetMonths = efMonths,
+            netWorthNow = now, netWorthYearAgo = yearAgo,
+        )
+    }.flowOn(Dispatchers.Default).asState(null)
+
+    // ---- Cash-flow forecast (next 45 days) ----
+    val cashFlowForecast = combine(
+        liquidCash, repo.recurringCharges, avgMonthlyExpenses,
+        combine(repo.allTransactionRecords, debtInputs) { txs, debts -> txs to debts },
+    ) { cash, subs, monthlyExp, (txs, debts) ->
+        val from = java.time.LocalDate.now()
+        val horizon = 45
+        val active = subs.filter { !it.possiblyCancelled }
+        val events = mutableListOf<com.financedashboard.core.engine.CashFlowForecastEngine.Event>()
+
+        // Discrete recurring bills.
+        val billsMonthly = active.sumOf { it.monthlyEquivalent }
+        active.forEach { s ->
+            val everyDays = when (s.cadence) {
+                com.financedashboard.core.engine.RecurringDetector.Cadence.WEEKLY -> 7
+                com.financedashboard.core.engine.RecurringDetector.Cadence.BIWEEKLY -> 14
+                com.financedashboard.core.engine.RecurringDetector.Cadence.MONTHLY -> 30
+                com.financedashboard.core.engine.RecurringDetector.Cadence.QUARTERLY -> 91
+                com.financedashboard.core.engine.RecurringDetector.Cadence.ANNUAL -> 365
+            }
+            events += com.financedashboard.core.engine.CashFlowForecastEngine.recurringEvents(
+                s.lastCharge, everyDays, -s.typicalAmount, s.merchant, from, horizon,
+            )
+        }
+
+        // Debt minimum payments (monthly), anchored to today's day-of-month.
+        val debtPaymentsMonthly = debts.filter { it.includeInPlan }.sumOf { it.minPayment }
+        debts.filter { it.includeInPlan && it.minPayment > 0 }.forEach { d ->
+            events += com.financedashboard.core.engine.CashFlowForecastEngine.recurringEvents(
+                from.minusMonths(1), 30, -d.minPayment, d.accountName, from, horizon,
+            )
+        }
+
+        // Everyday discretionary burn, smoothed daily. Bills and debt payments are
+        // modeled discretely above, so remove them from the smoothed remainder to
+        // avoid double-counting the same dollars.
+        val daysInMonth = from.lengthOfMonth()
+        val dailyBurn = ((monthlyExp - billsMonthly - debtPaymentsMonthly).coerceAtLeast(0.0)) / daysInMonth
+        for (i in 1..horizon) {
+            events += com.financedashboard.core.engine.CashFlowForecastEngine.Event(
+                from.plusDays(i.toLong()), -dailyBurn, "Everyday spending",
+            )
+        }
+
+        // Paychecks in: infer cadence and typical deposit from recent history.
+        val pay = txs.filter { it.category in IncomeAggregator.PAYCHECK_CATEGORIES && it.amount > 0 }
+            .sortedBy { it.date }
+        if (pay.size >= 2) {
+            val recent = pay.takeLast(6)
+            val gaps = recent.zipWithNext { a, b -> java.time.temporal.ChronoUnit.DAYS.between(a.date, b.date) }
+                .filter { it in 1..40 }
+            val medianGap = gaps.sorted().getOrNull(gaps.size / 2)?.toInt() ?: 14
+            val amts = recent.map { it.amount }.sorted()
+            val medianAmt = amts[amts.size / 2]
+            events += com.financedashboard.core.engine.CashFlowForecastEngine.recurringEvents(
+                pay.last().date, medianGap, medianAmt, "Paycheck", from, horizon,
+            )
+        }
+
+        com.financedashboard.core.engine.CashFlowForecastEngine.project(cash, events, from, horizon)
+    }.flowOn(Dispatchers.Default).asState(null)
+
+    // ---- "Since last import" digest ----
+    val importDigest = MutableStateFlow<com.financedashboard.core.engine.ImportDigestEngine.Digest?>(null)
+    fun dismissImportDigest() { importDigest.value = null }
+
+    private suspend fun captureImportDigest() {
+        val nw = repo.monthlyNetWorth.first().lastOrNull()
+        val snapshot = com.financedashboard.core.engine.ImportDigestEngine.Snapshot(
+            netWorth = nw?.net ?: 0.0,
+            totalDebt = nw?.debts ?: 0.0,
+            liquidCash = repo.liquidCash.first(),
+            currentMonthSpend = repo.currentMonthSpending.first(),
+            transactionCount = repo.transactionCount.first(),
+            latestTxEpochDay = repo.allTransactionRecords.first().maxOfOrNull { it.date.toEpochDay() } ?: 0L,
+            takenEpochDay = java.time.LocalDate.now().toEpochDay(),
+        )
+        val previous = settings.lastImportSnapshotNow()
+        importDigest.value = com.financedashboard.core.engine.ImportDigestEngine.diff(previous, snapshot)
+        settings.setLastImportSnapshot(snapshot)
+    }
+
     // ---- Crypto sell analysis ----
     val cryptoSell = combine(cryptoLots, investmentAccounts, ltcgRatePct) { lots, accs, rate ->
         if (lots == null) null
@@ -973,6 +1086,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     else -> null
                 }
             }
+            captureImportDigest()
             com.financedashboard.app.widget.NetWorthWidget.refresh(getApplication())
         }
     }

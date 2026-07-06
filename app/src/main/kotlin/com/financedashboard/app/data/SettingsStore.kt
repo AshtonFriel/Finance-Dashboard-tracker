@@ -55,6 +55,8 @@ class SettingsStore(private val context: Context) {
         val retirementRatePct = doublePreferencesKey("retirement_tax_rate")
         val mcVolatilityPct = doublePreferencesKey("mc_volatility")
         val balanceAdjustments = stringPreferencesKey("balance_adjustments")
+        val categoryBudgets = stringPreferencesKey("category_budgets")
+        val lastImportSnapshot = stringPreferencesKey("last_import_snapshot")
     }
 
     // Record separator / field separator for serialized lists (never appear in user text).
@@ -220,6 +222,54 @@ class SettingsStore(private val context: Context) {
     suspend fun clearBalanceAdjustments(account: String) = context.dataStore.edit { prefs ->
         prefs[Keys.balanceAdjustments] = balanceAdjustments.first().filter { it.account != account }
             .joinToString(RS.toString()) { "${it.account}$FS${it.epochDay}$FS${it.amount}" }
+    }
+
+    // ---- Category budgets ----
+    val categoryBudgets: Flow<List<com.financedashboard.core.engine.BudgetEngine.CategoryBudget>> =
+        context.dataStore.data.map { prefs ->
+            (prefs[Keys.categoryBudgets] ?: "").split(RS).filter { it.isNotBlank() }.mapNotNull { rec ->
+                val p = rec.split(FS)
+                val limit = p.getOrNull(1)?.toDoubleOrNull()
+                if (p[0].isNotBlank() && limit != null) {
+                    com.financedashboard.core.engine.BudgetEngine.CategoryBudget(p[0], limit)
+                } else null
+            }
+        }
+
+    /** Set (or, with limit <= 0, remove) a single category's monthly budget. */
+    suspend fun setCategoryBudget(category: String, limit: Double) = context.dataStore.edit { prefs ->
+        val current = categoryBudgets.first().associate { it.category to it.limit }.toMutableMap()
+        if (limit > 0.005) current[category] = limit else current.remove(category)
+        prefs[Keys.categoryBudgets] = current.entries.joinToString(RS.toString()) { "${it.key}$FS${it.value}" }
+    }
+
+    // ---- Last-import snapshot (for the "since last import" digest) ----
+    val lastImportSnapshot: Flow<com.financedashboard.core.engine.ImportDigestEngine.Snapshot?> =
+        context.dataStore.data.map { prefs -> parseSnapshot(prefs[Keys.lastImportSnapshot]) }
+
+    suspend fun lastImportSnapshotNow(): com.financedashboard.core.engine.ImportDigestEngine.Snapshot? =
+        parseSnapshot(context.dataStore.data.first()[Keys.lastImportSnapshot])
+
+    suspend fun setLastImportSnapshot(s: com.financedashboard.core.engine.ImportDigestEngine.Snapshot) =
+        context.dataStore.edit { prefs ->
+            prefs[Keys.lastImportSnapshot] = listOf(
+                s.netWorth, s.totalDebt, s.liquidCash, s.currentMonthSpend,
+                s.transactionCount, s.latestTxEpochDay, s.takenEpochDay,
+            ).joinToString(FS.toString())
+        }
+
+    private fun parseSnapshot(raw: String?): com.financedashboard.core.engine.ImportDigestEngine.Snapshot? {
+        val p = (raw ?: "").split(FS)
+        if (p.size < 7) return null
+        return com.financedashboard.core.engine.ImportDigestEngine.Snapshot(
+            netWorth = p[0].toDoubleOrNull() ?: return null,
+            totalDebt = p[1].toDoubleOrNull() ?: return null,
+            liquidCash = p[2].toDoubleOrNull() ?: return null,
+            currentMonthSpend = p[3].toDoubleOrNull() ?: return null,
+            transactionCount = p[4].toIntOrNull() ?: return null,
+            latestTxEpochDay = p[5].toLongOrNull() ?: return null,
+            takenEpochDay = p[6].toLongOrNull() ?: return null,
+        )
     }
 
     // ---- Security ----

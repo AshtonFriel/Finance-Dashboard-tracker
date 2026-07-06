@@ -191,6 +191,7 @@ private fun AppScaffold(vm: AppViewModel = viewModel()) {
             composable("yearreview") { com.financedashboard.app.ui.screens.YearReviewScreen(vm) }
             composable("settings") { SettingsScreen(vm) }
         }
+        com.financedashboard.app.ui.screens.ImportDigestDialog(vm)
     }
 }
 

@@ -71,4 +71,35 @@ object NetWorthAggregator {
             MonthlyNetWorth(m, assets, debts)
         }
     }
+
+    /**
+     * Year-over-year net-worth momentum, computed like-for-like: only accounts
+     * with a snapshot on or before BOTH the current date and one year earlier
+     * are compared. An account linked partway through the year (a loan or
+     * brokerage the user connected mid-window) would otherwise appear as a
+     * sudden loss or gain and distort the trend — here it is simply excluded
+     * from the comparison until it has a full year of its own history.
+     *
+     * Returns the fractional change (0.1 = +10%), or null when there isn't a
+     * year of history or no account spans both endpoints.
+     */
+    fun comparableYoYMomentum(balances: List<BalanceRecord>, asOf: java.time.LocalDate): Double? {
+        if (balances.isEmpty()) return null
+        val yearAgo = asOf.minusYears(1)
+        if (balances.minOf { it.date }.isAfter(yearAgo)) return null
+
+        fun snapshotAsOf(d: java.time.LocalDate): Map<String, Double> =
+            balances.filter { !it.date.isAfter(d) }
+                .groupBy { it.account }
+                .mapValues { (_, rows) -> rows.maxBy { it.date }.balance }
+
+        val now = snapshotAsOf(asOf)
+        val then = snapshotAsOf(yearAgo)
+        val common = now.keys intersect then.keys
+        if (common.isEmpty()) return null
+        val nowNet = common.sumOf { now.getValue(it) }
+        val thenNet = common.sumOf { then.getValue(it) }
+        if (kotlin.math.abs(thenNet) < 0.005) return null
+        return (nowNet - thenNet) / kotlin.math.abs(thenNet)
+    }
 }

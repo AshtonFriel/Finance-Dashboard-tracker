@@ -710,15 +710,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         combine(avgMonthlyIncome, avgMonthlyExpenses, debtInputs) { inc, exp, debts ->
             Triple(inc, exp, debts.filter { it.includeInPlan }.sumOf { it.minPayment })
         },
-        liquidCash, efTargetMonths, repo.monthlyNetWorth,
-    ) { (inc, exp, debtPay), cash, efMonths, nwSeries ->
-        val now = nwSeries.lastOrNull()?.net ?: 0.0
-        // 13 entries back ≈ same month one year ago (series is monthly, current last).
-        val yearAgo = if (nwSeries.size >= 13) nwSeries[nwSeries.size - 13].net else null
+        liquidCash, efTargetMonths, repo.allBalanceRecords,
+    ) { (inc, exp, debtPay), cash, efMonths, balances ->
+        // Like-for-like YoY momentum so a mid-year account link isn't read as a loss.
+        val momentum = com.financedashboard.core.engine.NetWorthAggregator
+            .comparableYoYMomentum(balances, java.time.LocalDate.now())
         com.financedashboard.core.engine.FinancialHealthEngine.compute(
             monthlyIncome = inc, monthlyExpenses = exp, monthlyDebtPayments = debtPay,
             liquidCash = cash, emergencyFundTargetMonths = efMonths,
-            netWorthNow = now, netWorthYearAgo = yearAgo,
+            netWorthMomentum = momentum,
         )
     }.flowOn(Dispatchers.Default).asState(null)
 

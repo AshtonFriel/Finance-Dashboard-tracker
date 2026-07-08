@@ -57,6 +57,7 @@ class SettingsStore(private val context: Context) {
         val balanceAdjustments = stringPreferencesKey("balance_adjustments")
         val categoryBudgets = stringPreferencesKey("category_budgets")
         val lastImportSnapshot = stringPreferencesKey("last_import_snapshot")
+        val notifiedBudgetsOver = stringPreferencesKey("notify_budgets_over")
     }
 
     // Record separator / field separator for serialized lists (never appear in user text).
@@ -326,4 +327,9 @@ class SettingsStore(private val context: Context) {
     suspend fun getNotifiedNetWorthHigh(): Double =
         context.dataStore.data.map { it[Keys.notifiedNetWorthHigh] ?: 0.0 }.first()
     suspend fun setNotifiedNetWorthHigh(v: Double) = context.dataStore.edit { it[Keys.notifiedNetWorthHigh] = v }
+
+    /** Marker of budgets already announced over-limit, as "YYYY-MM|cat|cat". */
+    suspend fun getNotifiedBudgetsOver(): String =
+        context.dataStore.data.map { it[Keys.notifiedBudgetsOver] ?: "" }.first()
+    suspend fun setNotifiedBudgetsOver(v: String) = context.dataStore.edit { it[Keys.notifiedBudgetsOver] = v }
 }

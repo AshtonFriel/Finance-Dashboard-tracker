@@ -65,6 +65,32 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         }
         if (currentNet > priorHigh) settings.setNotifiedNetWorthHigh(currentNet)
 
+        // Budget overspend: notify once per category per month it first goes over.
+        val budgets = settings.categoryBudgets.first()
+        if (budgets.isNotEmpty()) {
+            val today = LocalDate.now()
+            val spent = repo.currentMonthSpendByCategory.first()
+            val summary = com.financedashboard.core.engine.BudgetEngine.evaluate(
+                budgets, spent, today.dayOfMonth, today.lengthOfMonth(),
+            )
+            val over = summary.lines
+                .filter { it.status == com.financedashboard.core.engine.BudgetEngine.Status.OVER }
+                .map { it.category }
+            val monthKey = "${today.year}-${today.monthValue}"
+            val storedParts = settings.getNotifiedBudgetsOver().split("|")
+            val alreadyNotified = if (storedParts.firstOrNull() == monthKey) storedParts.drop(1).toSet() else emptySet()
+            val fresh = over.filter { it !in alreadyNotified }
+            if (fresh.isNotEmpty()) {
+                val msg = if (over.size == 1) "You're over budget on ${over.first()} this month."
+                    else "You're over budget in ${over.size} categories: ${over.joinToString(", ")}."
+                notify(4, "Budget alert", msg)
+                settings.setNotifiedBudgetsOver((listOf(monthKey) + over).joinToString("|"))
+            } else if (storedParts.firstOrNull() != monthKey) {
+                // New month with no overspend yet — reset the marker.
+                settings.setNotifiedBudgetsOver(monthKey)
+            }
+        }
+
         return Result.success()
     }
 

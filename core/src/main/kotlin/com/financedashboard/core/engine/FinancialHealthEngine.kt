@@ -45,8 +45,12 @@ object FinancialHealthEngine {
         monthlyDebtPayments: Double,
         liquidCash: Double,
         emergencyFundTargetMonths: Int,
-        netWorthNow: Double,
-        netWorthYearAgo: Double?,
+        /**
+         * Fractional year-over-year net-worth change (0.1 = +10%), computed
+         * like-for-like so mid-year account linking doesn't distort it. Null
+         * when there isn't enough history — the component then scores neutral.
+         */
+        netWorthMomentum: Double?,
     ): Health {
         val income = monthlyIncome.coerceAtLeast(0.0)
 
@@ -78,8 +82,7 @@ object FinancialHealthEngine {
         )
 
         // 4. Net-worth momentum: year-over-year growth. >=10% strong, <=-10% poor.
-        val momentum = if (netWorthYearAgo != null && kotlin.math.abs(netWorthYearAgo) > 0.005)
-            (netWorthNow - netWorthYearAgo) / kotlin.math.abs(netWorthYearAgo) else null
+        val momentum = netWorthMomentum
         val momentumScore = momentum?.let { lerpScore(it, poor = -0.10, strong = 0.10) } ?: 50
         val momentumComponent = Component(
             "Net-worth trend", momentumScore,

@@ -73,7 +73,7 @@ class FinancialHealthEngineTest {
         val h = FinancialHealthEngine.compute(
             monthlyIncome = 6000.0, monthlyExpenses = 3500.0, monthlyDebtPayments = 600.0,
             liquidCash = 21000.0, emergencyFundTargetMonths = 6,
-            netWorthNow = 200000.0, netWorthYearAgo = 170000.0,
+            netWorthMomentum = 0.18,
         )
         assertTrue("expected strong score, got ${h.score}", h.score >= 75)
         assertEquals(4, h.components.size)
@@ -84,7 +84,7 @@ class FinancialHealthEngineTest {
         val h = FinancialHealthEngine.compute(
             monthlyIncome = 4000.0, monthlyExpenses = 4200.0, monthlyDebtPayments = 1800.0,
             liquidCash = 500.0, emergencyFundTargetMonths = 6,
-            netWorthNow = -5000.0, netWorthYearAgo = null,
+            netWorthMomentum = null,
         )
         assertTrue("expected weak score, got ${h.score}", h.score <= 45)
         assertEquals(50, h.components.first { it.label == "Net-worth trend" }.score) // neutral w/o history

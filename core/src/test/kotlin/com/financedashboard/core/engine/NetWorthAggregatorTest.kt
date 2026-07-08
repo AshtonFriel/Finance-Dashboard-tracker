@@ -75,4 +75,24 @@ class NetWorthAggregatorTest {
         assertEquals(8.0, last.assets, 0.001)
         assertEquals(0.0, last.debts, 0.001)
     }
+
+    @Test
+    fun `momentum ignores an account linked mid-year`() {
+        val asOf = LocalDate.parse("2026-07-01")
+        val balances = listOf(
+            // Brokerage held all year, grew 100 -> 120 (+20%).
+            rec("Brokerage", 100.0, "2025-07-01"),
+            rec("Brokerage", 120.0, "2026-07-01"),
+            // A big loan only linked this year; must NOT count as a sudden loss.
+            rec("Auto Loan", -60000.0, "2026-06-01"),
+        )
+        val m = NetWorthAggregator.comparableYoYMomentum(balances, asOf)!!
+        assertEquals(0.20, m, 0.001)
+    }
+
+    @Test
+    fun `momentum is null without a year of history`() {
+        val balances = listOf(rec("Checking", 100.0, "2026-06-01"))
+        assertEquals(null, NetWorthAggregator.comparableYoYMomentum(balances, LocalDate.parse("2026-07-01")))
+    }
 }

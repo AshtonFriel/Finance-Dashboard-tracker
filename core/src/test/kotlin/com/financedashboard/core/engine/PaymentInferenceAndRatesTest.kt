@@ -40,10 +40,12 @@ class PaymentInferenceAndRatesTest {
     @Test
     fun `generically named loan without matching payments is omitted`() {
         val txs = listOf(pay("Capital One", -1272.0, "2026-05-29"))
-        // "Auto Loan (...9814)" has no institution token, so it can't match.
+        // "Auto Loan (...9814)" has no institution token, and a Loan-Repayment
+        // payment to another lender is not its Auto-Payment category, so no match.
         val inferred = PaymentInference.inferMonthlyPayments(listOf("Auto Loan (...9814)"), txs)
         assertTrue(inferred.isEmpty())
     }
+
 
     @Test
     fun `rates csv parses flexible headers and matches accounts`() {

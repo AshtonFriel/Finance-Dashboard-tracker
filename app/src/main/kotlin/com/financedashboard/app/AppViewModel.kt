@@ -41,7 +41,31 @@ object DefaultRates {
         }
     }
 
-    fun minPaymentFor(balance: Double): Double = (balance * 0.02).coerceAtLeast(25.0)
+    /**
+     * A realistic minimum payment when the real one isn't known from history.
+     * Revolving cards use the familiar ~2%-of-balance rule; installment loans
+     * (auto, student, personal) are amortized over a term typical for their
+     * type at the suggested APR, which is far closer to reality than 2% — a
+     * long-term student loan's payment is a small fraction of 2% of its balance,
+     * while a car loan's is set by its ~6-year term.
+     */
+    fun minPaymentFor(accountName: String, balance: Double): Double {
+        val n = accountName.lowercase()
+        val isRevolvingCard = (n.contains("card") || n.contains("visa") ||
+            n.contains("mastercard") || n.contains("amex")) && !n.contains("loan")
+        if (isRevolvingCard) return (balance * 0.02).coerceAtLeast(25.0)
+
+        val termMonths = when {
+            n.contains("student") || n.contains("aidvantage") || n.contains("nelnet") ||
+                n.contains("mohela") || n.contains("navient") || n.contains("sallie") -> 120
+            n.contains("auto") || n.contains("car") || n.contains("vehicle") -> 72
+            else -> 60 // personal / other installment loans
+        }
+        val monthlyRate = aprFor(accountName) / 100.0 / 12.0
+        val payment = if (monthlyRate <= 0.0) balance / termMonths
+        else balance * monthlyRate / (1 - Math.pow(1 + monthlyRate, -termMonths.toDouble()))
+        return payment.coerceAtLeast(25.0)
+    }
 }
 
 data class DebtInput(
@@ -139,14 +163,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * Active debts are auto-included; extractor suspects (duplicates, card
      * statement balances) default to excluded until the user opts them in.
      */
-    val debtInputs = combine(debtExtraction, repo.debtAssumptions, repo.maxOwedByAccount) { extraction, assumptions, maxOwed ->
+    val debtInputs = combine(
+        debtExtraction, repo.debtAssumptions, repo.maxOwedByAccount, repo.inferredPayments,
+    ) { extraction, assumptions, maxOwed, inferred ->
         fun input(c: com.financedashboard.core.classify.DebtExtractor.Candidate, note: String?, defaultInclude: Boolean): DebtInput {
             val a = assumptions[c.accountName]
             return DebtInput(
                 accountName = c.accountName,
                 balance = -c.balance,
                 aprPct = a?.aprPct ?: DefaultRates.aprFor(c.accountName),
-                minPayment = a?.minPayment ?: DefaultRates.minPaymentFor(-c.balance),
+                // Prefer the user's explicit value, then the payment actually
+                // observed in transaction history, and only fall back to the
+                // generic 2%-of-balance rule when there's no payment record —
+                // so payoff timelines reflect real payments out of the box.
+                minPayment = a?.minPayment
+                    ?: inferred[c.accountName]?.monthlyPayment
+                    ?: DefaultRates.minPaymentFor(c.accountName, -c.balance),
                 includeInPlan = a?.includeInPlan ?: defaultInclude,
                 reviewNote = note,
                 latestDate = c.latestDate,
@@ -325,7 +357,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 accountName = name,
                 aprPct = DefaultRates.aprFor(name),
                 minPayment = DefaultRates.minPaymentFor(
-                    debtInputs.value.firstOrNull { it.accountName == name }?.balance ?: 0.0,
+                    name, debtInputs.value.firstOrNull { it.accountName == name }?.balance ?: 0.0,
                 ),
                 includeInPlan = revolves,
             )

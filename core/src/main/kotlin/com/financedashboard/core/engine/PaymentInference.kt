@@ -23,9 +23,13 @@ object PaymentInference {
 
     /**
      * Matches payment transactions to debts by institution token (a payment to
-     * "SoFi" matches the "SoFi Personal Loan" account) and returns the median
-     * of the most recent monthly totals. Debts whose accounts are generically
-     * named (e.g. "Auto Loan (...9814)") won't match and are simply omitted.
+     * "SoFi" matches the "SoFi Personal Loan" account) and returns the smallest
+     * of the most recent monthly totals — the required minimum, since months
+     * with extra payments sit above it. Debts whose accounts are generically
+     * named (e.g. "Auto Loan (...9814)") won't match and are simply omitted;
+     * they fall back to an amortization-based default instead. Category-based
+     * matching was tried and rejected: real exports mis-file unrelated charges
+     * under payment categories, so it produced spurious minimums.
      */
     fun inferMonthlyPayments(
         debtAccountNames: List<String>,
